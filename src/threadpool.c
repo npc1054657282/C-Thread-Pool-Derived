@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2025 npc1054657282 <ly105465272 at gmail dot com>
+ * Copyright (c) 2025 npc1054657282 <ly1054657282 at gmail dot com>
  * Copyright (c) 2016 Johan Hanssen Seferidis
  *
  * This file is part of C-Thread-Pool-Refined, distributed under the MIT License.
