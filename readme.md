@@ -302,7 +302,7 @@ Here are some of the key functions provided by the library:
 
 When retrieving thread-specific metadata using functions like `thpool_thread_get_id` and `thpool_thread_get_name`, this library internally utilizes a common C idiom based on the `container_of` macro (similar to the one used in the Linux kernel).
 
-This technique allows the library to return a pointer to a member within an internal thread structure (`thread::thread_ctx_slot`) and then calculate the address of the containing `thread` structure from that member's address and its known offset. **The calculation involves casting the member pointer to a `uintptr_t` (an unsigned integer type guaranteed to hold a pointer value), performing integer subtraction of the member's offset, and then casting the resulting integer address back to a pointer to the containing structure.**
+This technique allows the library to return a pointer to a member within an internal thread structure (the `thread_ctx_slot` member within the `thread` structure) and then calculate the address of the containing `thread` structure from that member's address and its known offset. **The calculation involves casting the member pointer to a `uintptr_t` (an unsigned integer type guaranteed to hold a pointer value), performing integer subtraction of the member's offset, and then casting the resulting integer address back to a pointer to the containing structure.**
 
 The primary motivation for this approach is to keep the internal `thread` structure opaque to the user, providing better encapsulation, while still allowing access to essential metadata associated with the executing thread.
 
