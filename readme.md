@@ -125,10 +125,10 @@ Ensure your build system correctly compiles `threadpool_log_config.h` (by compil
 
 **选择二：使用您自己的日志系统 (高级定制)**
 
-If you already have your own logging library or wish to use standard output functions (like printf/fprintf), you can modify the threadpool_log_config.h file to define the `thpool_log_*` interfaces, directing the log output to your system.
-In this case, make sure you do not include "utils/log.h" or define macros mapping to `log_*` in `threadpool_log_config.h` (unless you intend to mix implementations).
+If you already have your own logging library or wish to use standard output functions (like `printf`/`fprintf`), you can modify the `threadpool_log_config.h` file to define the `thpool_log_*` interfaces, directing the log output to your system.
+In this case, make sure you do not include `"utils/log.h"` or define macros mapping to `log_*` in `threadpool_log_config.h` (unless you intend to mix implementations).
 
-如果您已经有自己的日志库，或者想使用标准输出函数（如 printf/fprintf），您可以修改 threadpool_log_config.h 文件，定义`thpool_log_*`接口，将日志输出导向您的日志系统。在这种情况下，请确保您没有在`threadpool_log_config.h`中包含 "utils/log.h" 或定义映射到`log_*`的宏（除非您打算混合使用实现）。
+如果您已经有自己的日志库，或者想使用标准输出函数（如`printf`/`fprintf`），您可以修改`threadpool_log_config.h`文件，定义`thpool_log_*`接口，将日志输出导向您的日志系统。在这种情况下，请确保您没有在`threadpool_log_config.h`中包含 `"utils/log.h"` 或定义映射到`log_*`的宏（除非您打算混合使用实现）。
 
 ``` c
 // Inside threadpool_log_config.h - MODIFY THIS FILE
