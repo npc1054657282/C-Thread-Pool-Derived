@@ -1,6 +1,16 @@
-/** @mainpage My Thread Pool Library Documentation
+<!--
+/** \mainpage   C-Thread-Pool-Refined Documentation
+ *  \section    features                            Features
+ *  \section    getting_started                     Getting Started
+ *  \section    examples                            Examples
+ *  \section    api_overview                        API Overview
+ *  \section    structures                          Structures
+ *  \section    container_of_note                   Note on `container_of` Usage for Thread Info
+ *  \section    included_components_and_licensing   Included Components and Licensing
+ */
+-->
 
-# C-Thread-Pool-Refined
+# C-Thread-Pool-Refined {#mainpage}
 
 This thread pool library is based on the excellent [Pithikos/C-Thread-Pool](https://github.com/Pithikos/C-Thread-Pool) project. We are deeply grateful to Pithikos for providing a solid and minimal foundation for a C thread pool.
 
@@ -21,9 +31,7 @@ While the original project aimed for strict ANSI C and POSIX compliance, this ve
 
 We hope these modifications make the library more flexible and suitable for a wider range of applications, while building upon the strong foundation laid by Pithikos's original work.
 
-@section features Features
-
-## Features
+## Features {#features}
 
 This library includes enhancements and modifications compared to the base Pithikos/C-Thread-Pool.
 
@@ -55,9 +63,7 @@ This library includes enhancements and modifications compared to the base Pithik
 
 * 暂停/继续功能：原版本的线程暂停 (`thpool_pause`) 和继续 (`thpool_resume`) 功能依赖于发送信号 (`SIGUSR1`) 并在信号处理函数中使用全局标志进行同步。这种方法虽然旨在控制线程执行，但由于以这种方式使用信号（包括在信号处理函数中执行非异步信号安全的函数，如`sleep`）所带来的复杂性，可能存在可靠性问题，并且其依赖于全局状态，从而无法实现对每个线程池的独立控制。鉴于支持多个独立线程池实例的目标以及偏好使用更健壮的同步原语（如互斥锁和条件变量）进行核心控制流，此版本未沿用该功能。
 
-@section getting_started Getting Started
-
-## Getting Started
+## Getting Started {#getting_started}
 
 This library is designed for easy integration into your C/C++ projects by including the source files directly.
 
@@ -210,9 +216,7 @@ int main() {
 }
 ```
 
-@section examples Examples
-
-## Examples
+## Examples {#examples}
 
 The "Getting Started" section provides a basic introduction to using the thread pool. However, to fully understand and utilize the library's features, including callbacks, context data, error handling, and specific work submission patterns, we highly recommend exploring the example programs located in the `examples` directory of this repository. Please note that these example programs are configured to use the default logging implementation based on `rxi/log.c`.
 
@@ -270,9 +274,7 @@ Replace `thpool_easy_example` with the name of the example program you wish to r
 
 将`thpool_easy_example`替换为您希望运行的示例程序名称。
 
-@section api_overview API Overview
-
-## API Overview
+## API Overview {#api_overview}
 
 Here are some of the key functions provided by the library:
 
@@ -287,18 +289,14 @@ Here are some of the key functions provided by the library:
 * **`const char* thpool_thread_get_name(void **thread_ctx_location)`**: Gets the name of the calling thread pool thread (intended for use within tasks or callbacks).
 * **optional debug APIs:** These APIs are enabled by defining the macro `THPOOL_ENABLE_DEBUG_CONC_API` before including threadpool.h. For detailed usage and API reference of the debug concurrency features, please consult the comments within the `threadpool.h` header file.
 
-@section structures Structures
-
-## Structures
+## Structures {#structures}
 
 * **`threadpool`**: An opaque handle for the thread pool.
 * **`thpool_arg`**: Flexible union to carry arguments for task and callback functions (value or pointer).
 * **`threadpool_config`**: Structure used to configure the thread pool during initialization.
 * **`thpool_debug_conc_passport`**: An opaque handle for the debug concurrency passport (used with `THPOOL_ENABLE_DEBUG_CONC_API`).
 
-@section container_of_note Note on `container_of` Usage for Thread Info
-
-## Note on `container_of` Usage for Thread Info
+## Note on `container_of` Usage for Thread Info {#container_of_note}
 
 When retrieving thread-specific metadata using functions like `thpool_thread_get_id` and `thpool_thread_get_name`, this library internally utilizes a common C idiom based on the `container_of` macro (similar to the one used in the Linux kernel).
 
@@ -314,9 +312,7 @@ This implementation assumes that the compiler and target architecture behave in 
 
 **If you are working in a highly constrained environment, using an unusual architecture, or a non-standard compiler where you cannot verify the behavior of such pointer arithmetic and conversions, you might need to exercise caution or avoid using the `get thread info` series of functions.** In typical development scenarios on standard platforms, this usage is generally considered safe and reliable in practice, despite the theoretical UB concern.
 
-@section included_components_and_licensing Included Components and Licensing
-
-## Included Components and Licensing
+## Included Components and Licensing {#included_components_and_licensing}
 
 This library includes a copy of the source code for a simple logging utility (`utils/log.h` and `utils/log.c`) as an optional default logging backend (see [Getting Started](#getting-started) - Option 1). This logging utility is the [rxi/log.c](https://github.com/rxi/log.c) project.
 
@@ -333,4 +329,3 @@ If you choose **not** to use the included default logging implementation (Option
 请注意，`rxi/log.c`是在MIT开源许可证下发布的。如果您选择在您的项目中使用包含的`utils/log.h`和`utils/log.c`文件，您**必须**遵守其许可证的条款。`rxi/log.c`的许可证可以在<https://github.com/rxi/log.c/blob/master/LICENSE>找到（或者直接在本代码仓库的 `third_party_licenses` 目录下找到）。
 
 如果您选择**不**使用包含的默认日志实现（[Getting Started](#getting-started) 中的选项二），而是将 `thpool_log_*` 映射到您自己的日志系统，则您不受 `rxi/log.c` 许可证的约束。
-*/
