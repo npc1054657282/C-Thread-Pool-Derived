@@ -50,3 +50,23 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# MacOS Cache
+.DS_Store
+
+# Xmake cache
+.xmake/
+build/
+makefile
+
+# gcc cache
+gcm.cache
+
+# for VS Code
+.vscode/
+
+# for vim
+*.swp
+*.swo
+tags
+!tags/
