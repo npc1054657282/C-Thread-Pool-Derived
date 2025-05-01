@@ -12,7 +12,21 @@
 
 <a id="mainpage"></a>
 
-# C-Thread-Pool-Refined
+# C-Thread-Pool-Derived
+
+After in-depth study and analysis of existing mature C/C++ thread pool implementations, particularly the design found in the [Sogou Workflow library](https://github.com/sogou/workflow/blob/master/src/kernel/thrdpool.c), I have come to realize that the features provided by the standard POSIX threads library (such as `pthread_getspecific` combined with the destructor mechanism of `pthread_key_create`) can effectively achieve thread-local context management and automatic cleanup upon thread exit.
+
+This project was initially created to improve upon some simpler existing thread pool implementations and to explore adding features like multiple instances, custom queues, and thread context. However, having understood the power of the mature design of existing high-performance libraries like Workflow, I found that the custom implementation of features like thread context within this project is redundant, and mature libraries offer superior overall design, performance, and robustness.
+
+Therefore, I have decided to discontinue active maintenance of this project. The code of this project will remain available as a valuable record of learning and practice.
+
+If you are looking for a production-grade, high-performance, and feature-rich C/C++ thread pool implementation, I highly recommend you consider and use the Sogou Workflow library. Its thread pool design (and the entire framework) is excellent and widely used in production environments.
+
+[Sogou Workflow GitHub Repository](https://github.com/sogou/workflow)
+
+Thank you to everyone who showed interest to this project. I hope the code and the related discussions of this project can still be a source of inspiration for learning.
+
+------------------------------------------------------------------
 
 This thread pool library is based on the excellent [Pithikos/C-Thread-Pool](https://github.com/Pithikos/C-Thread-Pool) project. We are deeply grateful to Pithikos for providing a solid and minimal foundation for a C thread pool.
 
