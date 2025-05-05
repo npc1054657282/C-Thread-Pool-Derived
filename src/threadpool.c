@@ -160,16 +160,18 @@ typedef struct job{
     /**
      * @brief Task function pointer.
      *
-     * The task function signature includes an argument (thpool_arg) and a pointer
-     * to the thread's context pointer (void**). The task function can use
-     * the thread_ctx_out parameter to get/set thread-specific data.
+     * The task function signature includes an argument (threadpool_arg) and a handle
+     * to current thread. The task function can get access to thread-specific data
+     * and thread-metadata with current thread handle.
      * 
-     * 函数指针在原有参数基础上，增加了thread_ctx_out参数，允许在线程与任务之间共享上下文数据。
-     * 该参数将自动传入thread_ctx的地址，因此thread_ctx结构体本身可以由job函数自由地创建与销毁处置。
+     * 函数指针在原有参数基础上，增加了当前线程的句柄，利用该句柄用户可以访问包括线程上下文在内的线程元数据。
+     * thread_ctx结构体本身由job函数自由地创建与销毁处置，线程元数据给它提供一个存放的锚点。
      * 需要job与回调函数自己维护thread_ctx的内存安全，线程池本身不予管理。
+     * 用户自己也可以使用POSIX提供的pthread_getspecific来实现线程上下文功能。
+     * 但是，本方案基于回调的实现，析构过程与时机完全由用户掌握，更透明，更加利于调试。
      */
-    void   (*function)(thpool_arg arg, void** thread_ctx_out);   /* function pointer    */
-    thpool_arg  arg;                        /* function's argument          */
+    void   (*function)(threadpool_arg arg, threadpool_thread);   /* function pointer    */
+    threadpool_arg  arg;                        /* function's argument          */
 } job;
 
 /* 将锁结构移出jobqueue，jobqueue结构体仅仅关心自己内部的任务，不关心与外部的同步。 */
@@ -198,7 +200,7 @@ typedef struct jobqueue{
 } jobqueue;
 
 /* Thread */
-typedef struct thread{
+typedef struct thread_{
     int         id;                         /* friendly id                  */
     pthread_t   pthread;                    /* pointer to actual thread     */
     struct thpool_* thpool_p;               /* access to thpool             */
@@ -215,12 +217,12 @@ typedef struct thread{
      */
     void*       thread_ctx_slot;            
     char        thread_name[16];    /* Thread name for debugging/profiling. 线程名，原作者在thread_do中临时创建，这里在thread_init中先创建。    */
-} thread;
+} thread_;
 
 /* Threadpool */
 /* 相关的一些变量被我修改为atomic_int类型。 */
 typedef struct thpool_{
-    thread**    threads;                    /* pointer to threads           */
+    thread_**    threads;                    /* pointer to threads           */
     /**
      * Records the number of threads successfully created during initialization.
      * 记录创建时的thread数量，这依然重要，以避免在num_threads_alive不准确时错误统计导致销毁失误。
@@ -267,9 +269,9 @@ typedef struct thpool_{
      * 加上一个末尾必须的"\0"，前缀命名提供7字节。
      */
     char    thread_name_prefix[7];
-    void    (*thread_start_cb)(thpool_arg , void **thread_ctx_out);
-    void    (*thread_end_cb)(void **thread_ctx_out);
-    thpool_arg  callback_arg;
+    void    (*thread_start_cb)(threadpool_arg , threadpool_thread current_thrd);
+    void    (*thread_end_cb)(threadpool_thread current_thrd);
+    threadpool_arg  callback_arg;
     void    (*callback_arg_destructor)(void *);
     /**
      * 
@@ -295,11 +297,11 @@ typedef struct thpool_{
 
 // 删除了原作者的thread_hold，以及删除了所有二元信号量相关代码。
 // Helper function to initialize a single thread
-static int      thread_init(thpool_* thpool_p, struct thread** thread_pout, int id);
+static int      thread_init(thpool_* thpool_p, struct thread_** thread_pout, int id);
 // The main function executed by each worker thread
-static void*    thread_do(struct thread* thread_p);
+static void*    thread_do(struct thread_* thread_p);
 // Helper function to free thread resources
-static void     thread_destroy(struct thread* thread_p);
+static void     thread_destroy(struct thread_* thread_p);
 
 // 把jobqueue的push和pull均改为无锁保护版本，jobqueue操作仅仅关心自己作为一个结构体该做的事，不去关心与信号同步有关的事。
 // Job queue internal helper functions (unsafe - require external synchronization)
@@ -316,7 +318,7 @@ static struct job*  thpool_get_job(thpool_* thpool_p);
 // 原有api改名为inner。inner的api不涉及conc_state_block
 // Inner API functions (do not involve passport checks or use counting)
 static int      thpool_wait_inner(thpool_* thpool_p);
-static int      thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(thpool_arg, void**), thpool_arg arg_p);
+static int      thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
 static int      thpool_reactivate_inner(thpool_* thpool_p);
 static int      thpool_num_threads_working_inner(thpool_* thpool_p);
 // 在inner api的基础上增加了涉及conc_state_block的操作。
@@ -329,7 +331,7 @@ static int      thpool_num_threads_working_inner(thpool_* thpool_p);
 static int      thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 static int      thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 static inline int   thpool_wait_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
-static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(thpool_arg, void**), thpool_arg arg_p);
+static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
 static inline int   thpool_reactivate_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 static inline int   thpool_num_threads_working_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 
@@ -346,9 +348,9 @@ conc_state_block_* thpool_debug_conc_passport_init();
 * @param id            id to be given to the thread
 * @return 0 on success, -1 otherwise.
 */
-static int thread_init (thpool_* thpool_p, struct thread** thread_pout, int id){
+static int thread_init (thpool_* thpool_p, struct thread_** thread_pout, int id){
 
-    *thread_pout = (struct thread*)malloc(sizeof(struct thread));
+    *thread_pout = (struct thread_*)malloc(sizeof(struct thread_));
     if (unlikely(*thread_pout == NULL)){
         thpool_log_error("thread_init(): Could not allocate memory for thread");
         return -1;
@@ -362,7 +364,7 @@ static int thread_init (thpool_* thpool_p, struct thread** thread_pout, int id){
 
     /**
      * 线程的thread_context上下文初始化为NULL。
-     * 用户可以在线程的回调函数与任意job函数中利用**thread_ctx_out参数构造该线程上下文。
+     * 用户可以在线程的回调函数与任意job函数中通过线程句柄获得该线程上下文槽位。
      */
     (*thread_pout)->thread_ctx_slot = NULL;
 
@@ -388,7 +390,7 @@ static int thread_init (thpool_* thpool_p, struct thread** thread_pout, int id){
  * @param  thread        thread that will run this function
  * @return nothing
  */
-static void* thread_do(struct thread* thread_p){
+static void* thread_do(struct thread_* thread_p){
 
     /* Set thread name for profiling and debugging */
     /* 原作者在此处构造线程名，改为在init构造，仅需使用thread_p->thread_name的构造成品。 */
@@ -411,7 +413,7 @@ static void* thread_do(struct thread* thread_p){
 
     /* 执行开始任务回调，如果有的话。   */
     if (thpool_p->thread_start_cb){
-        thpool_p->thread_start_cb(thpool_p->callback_arg, &thread_p->thread_ctx_slot);
+        thpool_p->thread_start_cb(thpool_p->callback_arg, thread_p);
     }
 
     while(atomic_load(&thpool_p->threads_keepalive)){
@@ -424,8 +426,8 @@ static void* thread_do(struct thread* thread_p){
             atomic_fetch_add(&thpool_p->num_threads_working, 1);
 
             /* Read job from queue and execute it */
-            /* 略作修改，增加了一个参数thread_ctx_out。使用的时候，添加任务只需要输入函数和参数，而定义任务函数的时候除了arg还有上下文参数。 */
-            job_p->function(job_p->arg, &thread_p->thread_ctx_slot);
+            /* 略作修改，增加了当前线程句柄参数。使用的时候，添加任务只需要输入函数和参数，而定义任务函数的时候除了arg还有线程句柄参数。    */
+            job_p->function(job_p->arg, thread_p);
             free(job_p);
 
             /**
@@ -452,7 +454,7 @@ static void* thread_do(struct thread* thread_p){
     }
     /* 如果存在任务执行回调，执行任务结束回调。 */
     if(thpool_p->thread_end_cb) {
-        thpool_p->thread_end_cb(&thread_p->thread_ctx_slot);
+        thpool_p->thread_end_cb(thread_p);
     }
     atomic_fetch_sub(&thpool_p->num_threads_alive, 1);
 
@@ -460,37 +462,30 @@ static void* thread_do(struct thread* thread_p){
 }
 
 /* Frees a thread  */
-static void thread_destroy (thread* thread_p){
+static void thread_destroy (thread_* thread_p){
     free(thread_p);
 }
 
 /* ======================= GET THREAD INFO ========================== */
 
-/**
- * 在获取线程信息时，使用了linus的`container_of`这一ub用法。
- * C 标准对于指针的“出处”有规定，大致意思是说，一个指针只能可靠地用于访问其最初指向的对象或同一个数组对象内的元素。
- * 通过将指针转换为整数，进行任意算术运算，然后再转换回指针，新得到的指针可能被认为没有正确指向预期对象的“出处”。
- * `container_of`随后通过这个转换回来的指针去访问结构体的成员，
- * 这可能违反 C 标准关于通过指针访问对象时的有效类型（effective type）或出处的规则，从而导致 UB。
- * 这是一种妥协，因为我希望向用户隐藏thread结构体，同时又希望开放某些元数据成员供用户获取。
- * 而`container_of`是一种广泛使用的用法，有linus帮我背书，在实践中通常是可靠的。
- * 为了实现我的功能，我不得不假定使用者的编译器支持这种实现。
- * 如果用户无法确定自己的编译器是否支持`contain_of`，不要使用`get thread info`系列函数。
- */
-#ifndef container_of
-#define container_of(ptr, type, member) ({          \
-    const typeof( ((type *)0)->member ) *__mptr = (const typeof( ((type *)0)->member ) *)(ptr); \
-    (type *)( (uintptr_t)__mptr - offsetof(type,member) );})
-#endif
-
-int thpool_thread_get_id(void **thread_ctx_location){
-    thread *thread_p = container_of(thread_ctx_location, thread, thread_ctx_slot);
-    return thread_p->id;
+int thpool_thread_get_id(threadpool_thread current_thrd){
+    return current_thrd->id;
 }
 
-const char* thpool_thread_get_name(void **thread_ctx_location){
-    thread *thread_p = container_of(thread_ctx_location, struct thread, thread_ctx_slot);
-    return (const char*)thread_p->thread_name;
+const char* thpool_thread_get_name(threadpool_thread current_thrd){
+    return (const char*)current_thrd->thread_name;
+}
+
+void * thpool_thread_get_context(threadpool_thread current_thrd){
+    return current_thrd->thread_ctx_slot;
+}
+
+void thpool_thread_set_context(threadpool_thread current_thrd, void *ctx){
+    current_thrd->thread_ctx_slot = ctx;
+}
+
+void thpool_thread_unset_context(threadpool_thread current_thrd){
+    current_thrd->thread_ctx_slot = NULL;
 }
 
 /* ============================ JOB QUEUE =========================== */
@@ -681,7 +676,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
     }
 
     /* Make threads in pool */
-    thpool_p->threads = (struct thread**)malloc(num_threads * sizeof(struct thread *));
+    thpool_p->threads = (struct thread_**)malloc(num_threads * sizeof(struct thread_ *));
     if (thpool_p->threads == NULL){
         thpool_log_error("thpool_init(): Could not allocate memory for threads");
         goto cleanup_put_job_unblock;
@@ -994,7 +989,7 @@ static struct job*  thpool_get_job(thpool_* thpool_p){
 }
 
 /* Add work to the thread pool */
-static int thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(thpool_arg, void**), thpool_arg arg_p){
+static int thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
     job* newjob;
 
     newjob=(struct job*)malloc(sizeof(struct job));
@@ -1077,7 +1072,7 @@ DEFINE_THPOOL_EASY_API_SAFE_INNER(wait)
 DEFINE_THPOOL_EASY_API_SAFE_INNER(reactivate)
 DEFINE_THPOOL_EASY_API_SAFE_INNER(num_threads_working)
 
-static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(thpool_arg, void**), thpool_arg arg_p){
+static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
     int ret;
     atomic_fetch_add(&passport->num_api_use, 1);
     enum thpool_state state = atomic_load(&passport->state);
@@ -1109,7 +1104,7 @@ DEFINE_THPOOL_EASY_API(destroy)
 DEFINE_THPOOL_EASY_API(num_threads_working)
 
 
-int thpool_add_work(thpool_* thpool_p, void (*function_p)(thpool_arg, void**), thpool_arg arg_p){
+int thpool_add_work(thpool_* thpool_p, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
     if(unlikely(thpool_p == NULL)){
         return 0;
     }
@@ -1172,7 +1167,7 @@ DEFINE_THPOOL_EASY_DEBUG_CONC_API(shutdown)
 DEFINE_THPOOL_EASY_DEBUG_CONC_API(destroy)
 DEFINE_THPOOL_EASY_DEBUG_CONC_API(num_threads_working)
 
-int thpool_add_work_debug_conc(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(thpool_arg, void**), thpool_arg arg_p){
+int thpool_add_work_debug_conc(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
     if(unlikely(thpool_p == NULL) || unlikely(passport == NULL)){
         return 0;
     }

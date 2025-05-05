@@ -13,10 +13,10 @@ typedef struct task_thread_ctx{
     pthread_mutex_t *log_mutex_ref;
 }task_thread_ctx;
 
-void start_cb(thpool_arg arg, void ** ctx_out){
+void start_cb(threadpool_arg arg, threadpool_thread current_thrd){
 
     pthread_mutex_t *log_mutex = (pthread_mutex_t *)arg.ptr;
-    task_thread_ctx *tctx = *(task_thread_ctx **)ctx_out;
+    task_thread_ctx *tctx = (task_thread_ctx *)thpool_thread_get_context(current_thrd);
     if(!tctx) {
         tctx = (task_thread_ctx *)malloc(sizeof(task_thread_ctx));
         if (tctx == NULL) {
@@ -26,19 +26,19 @@ void start_cb(thpool_arg arg, void ** ctx_out){
             return;
         }
         memset(tctx, 0, sizeof(task_thread_ctx));
-        *(task_thread_ctx **)ctx_out = tctx;
+        thpool_thread_set_context(current_thrd, (void *)tctx);
     }
     time(&tctx->start);
     tctx->log_mutex_ref = log_mutex;
 }
 
-void end_cb(void ** ctx_out){
-    task_thread_ctx *tctx = *(task_thread_ctx **)ctx_out;
+void end_cb(threadpool_thread current_thrd){
+    task_thread_ctx *tctx = (task_thread_ctx *)thpool_thread_get_context(current_thrd);
     if(!tctx) {
         return;
     }
     free(tctx);//上下文对互斥锁只是引用，并非持有，无需在此销毁。
-    *(task_thread_ctx **)ctx_out = NULL;
+    thpool_thread_unset_context(current_thrd);
 }
 
 void mutex_destructor(pthread_mutex_t * mutex){
@@ -51,15 +51,15 @@ typedef struct{
     time_t add_work_time;
 } task_args;
 
-void task(thpool_arg arg, void ** ctx_out){
+void task(threadpool_arg arg, threadpool_thread current_thrd){
     task_args *args = (task_args*)arg.ptr;
-    task_thread_ctx *tctx = *(task_thread_ctx **)ctx_out;
+    task_thread_ctx *tctx = (task_thread_ctx *)thpool_thread_get_context(current_thrd);
     if(!tctx) {
         return;
     }
     time_t add_work_time = (time_t)args->add_work_time;
-    const char *name = thpool_thread_get_name(ctx_out);
-    int id = thpool_thread_get_id(ctx_out);
+    const char *name = thpool_thread_get_name(current_thrd);
+    int id = thpool_thread_get_id(current_thrd);
     time_t now;
     time(&now);
     double timepassthread = difftime(now, tctx->start);
@@ -98,7 +98,7 @@ int main(){
         pthread_mutex_lock(log_mutex);
         printf("start to add job %d at %s\n", i, ctime(&now));
         pthread_mutex_unlock(log_mutex);
-        thpool_arg arg = {.ptr = malloc(sizeof(task_args))};
+        threadpool_arg arg = {.ptr = malloc(sizeof(task_args))};
         ((task_args*)arg.ptr)->add_work_time = now;
         ((task_args*)arg.ptr)->job_id = i;
         thpool_add_work(thpool, task, arg);
@@ -116,7 +116,7 @@ int main(){
         pthread_mutex_lock(log_mutex);
         printf("start to add job %d at %s\n", i, ctime(&now));
         pthread_mutex_unlock(log_mutex);
-        thpool_arg arg = {.ptr = malloc(sizeof(task_args))};
+        threadpool_arg arg = {.ptr = malloc(sizeof(task_args))};
         ((task_args*)arg.ptr)->add_work_time = now;
         ((task_args*)arg.ptr)->job_id = i;
         thpool_add_work(thpool, task, arg);
