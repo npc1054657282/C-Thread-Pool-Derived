@@ -217,6 +217,7 @@ typedef struct thread_{
      */
     void*       thread_ctx_slot;            
     char        thread_name[16];    /* Thread name for debugging/profiling. 线程名，原作者在thread_do中临时创建，这里在thread_init中先创建。    */
+    bool        callback_arg_ref_holding;   /* 如果用户提供了回调参数的析构函数，该布尔位指示是否本线程是否对回调参数持有引用。 */
 } thread_;
 
 /* Threadpool */
@@ -230,7 +231,6 @@ typedef struct thpool_{
     int         num_threads;
     atomic_int  num_threads_alive;          /* threads currently alive      */
     /**
-     * 
      * @brief Atomic counter for threads currently executing a job.
      * Updated outside of job queue lock. Used for signaling when all threads are idle.
      * 
@@ -273,8 +273,8 @@ typedef struct thpool_{
     void    (*thread_end_cb)(threadpool_thread current_thrd);
     threadpool_arg  callback_arg;
     void    (*callback_arg_destructor)(void *);
+    atomic_int  callback_arg_refcount;  /* 如果用户提供了回调参数的析构函数，则进行引用计数。   */
     /**
-     * 
      * @brief Pointer to the associated concurrency passport.
      *
      * This pointer links the thread pool to its state tracking and debug features.
@@ -323,11 +323,13 @@ static int      thpool_reactivate_inner(thpool_* thpool_p);
 static int      thpool_num_threads_working_inner(thpool_* thpool_p);
 // 在inner api的基础上增加了涉及conc_state_block的操作。
 // 其他api直接在inner api基础上用宏扩充。shutdown和destroy比较特殊，因此从一开始就设计成safe inner api。
-// Safe inner API functions (include passport checks and use counting)
-// These are called by the public API and debug_conc API variants.
-// @param thpool_p The thread pool handle.
-// @param passport The concurrency passport.
-// @return 0 on success, -1 on error.
+/**
+ * Safe inner API functions (include passport checks and use counting)
+ * These are called by the public API and debug_conc API variants.
+ * @param thpool_p The thread pool handle.
+ * @param passport The concurrency passport.
+ * @return 0 on success, -1 on error.
+ */
 static int      thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 static int      thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 static inline int   thpool_wait_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
@@ -342,12 +344,13 @@ conc_state_block_* thpool_debug_conc_passport_init();
 
 /* ============================ THREAD ============================== */
 
-/* Initialize a thread in the thread pool
-*
-* @param thread        address to the pointer of the thread to be created
-* @param id            id to be given to the thread
-* @return 0 on success, -1 otherwise.
-*/
+/**
+ * Initialize a thread in the thread pool
+ *
+ * @param thread_pout   address to the pointer of the thread to be created
+ * @param id            id to be given to the thread
+ * @return 0 on success, -1 otherwise.
+ */
 static int thread_init (thpool_* thpool_p, struct thread_** thread_pout, int id){
 
     *thread_pout = (struct thread_*)malloc(sizeof(struct thread_));
@@ -356,8 +359,14 @@ static int thread_init (thpool_* thpool_p, struct thread_** thread_pout, int id)
         return -1;
     }
 
-    (*thread_pout)->thpool_p= thpool_p;
-    (*thread_pout)->id      = id;
+    (*thread_pout)->thpool_p    = thpool_p;
+    (*thread_pout)->id          = id;
+    if(thpool_p->callback_arg_destructor != NULL){
+        (*thread_pout)->callback_arg_ref_holding = true;
+    }
+    else{
+        (*thread_pout)->callback_arg_ref_holding = false;
+    }
 
     //原作者在thread_do中构造thread_name，这里提前到thread_init中。使用十六进制来表达id，压缩理论最大id的字符量。
     snprintf((*thread_pout)->thread_name, 16, "%s-%x", thpool_p->thread_name_prefix, id);
@@ -374,7 +383,8 @@ static int thread_init (thpool_* thpool_p, struct thread_** thread_pout, int id)
     }
     else {
         thpool_log_error("thread %d:pthread_create_failed, err=%d",id, err);
-        /* 创建失败时立即清理自建的thread结构体并重置为NULL，如此则在thpool整体销毁时不会二次free。 */
+        /* 创建失败时，解除对callback_arg的引用，立即清理自建的thread结构体并重置为NULL，如此则在thpool整体销毁时不会二次free。 */
+        thpool_thread_unref_callback_arg(*thread_pout);
         free(*thread_pout);
         *thread_pout = NULL;
     }
@@ -387,7 +397,7 @@ static int thread_init (thpool_* thpool_p, struct thread_** thread_pout, int id)
  * In principle this is an endless loop. The only time this loop gets interrupted is once
  * thpool_destroy() is invoked or the program exits.
  *
- * @param  thread        thread that will run this function
+ * @param  thread_p     thread that will run this function
  * @return nothing
  */
 static void* thread_do(struct thread_* thread_p){
@@ -456,6 +466,10 @@ static void* thread_do(struct thread_* thread_p){
     if(thpool_p->thread_end_cb) {
         thpool_p->thread_end_cb(thread_p);
     }
+    /* 如果此时传入destructor的回调参数用户仍未手动解除引用，自动解除引用。 */
+    if(thread_p->callback_arg_ref_holding){
+        thpool_thread_unref_callback_arg(thread_p);
+    }
     atomic_fetch_sub(&thpool_p->num_threads_alive, 1);
 
     return NULL;
@@ -466,7 +480,7 @@ static void thread_destroy (thread_* thread_p){
     free(thread_p);
 }
 
-/* ======================= GET THREAD INFO ========================== */
+/* ====================== THREAD WORKER API ========================= */
 
 int thpool_thread_get_id(threadpool_thread current_thrd){
     return current_thrd->id;
@@ -486,6 +500,16 @@ void thpool_thread_set_context(threadpool_thread current_thrd, void *ctx){
 
 void thpool_thread_unset_context(threadpool_thread current_thrd){
     current_thrd->thread_ctx_slot = NULL;
+}
+
+void thpool_thread_unref_callback_arg(threadpool_thread current_thrd){
+    if(current_thrd->callback_arg_ref_holding && likely(current_thrd->thpool_p->callback_arg_destructor != NULL)){
+        current_thrd->callback_arg_ref_holding = false;
+        if(atomic_fetch_sub_explicit(&current_thrd->thpool_p->callback_arg_refcount, 1, memory_order_acq_rel) == 1){
+            current_thrd->thpool_p->callback_arg_destructor(current_thrd->thpool_p->callback_arg.ptr);
+            thpool_log_debug("callback_arg destructed.");
+        }
+    }
 }
 
 /* ============================ JOB QUEUE =========================== */
@@ -584,7 +608,7 @@ static struct job* jobqueue_pull_unsafe(jobqueue* jobqueue_p){
  */
 struct thpool_* thpool_init(threadpool_config *conf){
 
-    if(conf == NULL){
+    if(unlikely(conf == NULL)){
         return NULL;
     }
 
@@ -650,6 +674,16 @@ struct thpool_* thpool_init(threadpool_config *conf){
     atomic_init(&thpool_p->threads_active, true);
     atomic_init(&thpool_p->num_threads_alive, 0);
     atomic_init(&thpool_p->num_threads_working, 0);
+    /**
+     * 如果用户对callback_arg传入了析构函数，则各线程默认均持有引用。此外`thpool_init`自己也视为持有引用。
+     * `thpool_init`的引用持续到所有线程的创建函数执行完成。
+     */
+    if(thpool_p->callback_arg_destructor != NULL){
+        atomic_init(&thpool_p->callback_arg_refcount, num_threads + 1);
+    }
+    else{
+        atomic_init(&thpool_p->callback_arg_refcount, 0);
+    }
 
     /* 在任务队列创建前，先创建相关锁。 */
     /* Job queue related locks and condition variables initialization. */
@@ -677,7 +711,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
 
     /* Make threads in pool */
     thpool_p->threads = (struct thread_**)malloc(num_threads * sizeof(struct thread_ *));
-    if (thpool_p->threads == NULL){
+    if (unlikely(thpool_p->threads == NULL)){
         thpool_log_error("thpool_init(): Could not allocate memory for threads");
         goto cleanup_put_job_unblock;
     }
@@ -703,6 +737,19 @@ struct thpool_* thpool_init(threadpool_config *conf){
             num_threads -= 1;
         }
     }
+    if(unlikely(num_threads <= 0)){
+        goto cleanup_threads_all_idle; 
+    }
+    /**
+     * 如果线程没有全部创建失败，就视为线程池创建成功。此时解除`thpool_init`自身的引用计数。
+     * 因为此刻可以保证不会再发生线程池创建失败的可能性，因此如果引用计数降至0，可以放心地执行析构。
+     */
+    if(thpool_p->callback_arg_destructor != NULL){
+        if(atomic_fetch_sub_explicit(&thpool_p->callback_arg_refcount, 1, memory_order_acq_rel) == 1){
+            thpool_p->callback_arg_destructor(thpool_p->callback_arg.ptr);
+            thpool_log_debug("callback_arg destructed by thpool_init.");
+        }
+    }
 
     /* Wait for threads to initialize */
     while (atomic_load(&thpool_p->num_threads_alive) != num_threads) {
@@ -715,6 +762,8 @@ struct thpool_* thpool_init(threadpool_config *conf){
 
     return thpool_p;
 
+cleanup_threads_all_idle:
+    pthread_cond_destroy(&thpool_p->threads_all_idle);
 cleanup_threads_all_idle_mutex:
     pthread_mutex_destroy(&thpool_p->threads_all_idle_mutex);
 cleanup_threads_array:
@@ -883,9 +932,6 @@ static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *pass
     pthread_cond_destroy(&thpool_p->get_job_unblock);
     pthread_cond_destroy(&thpool_p->put_job_unblock);
 
-    if(thpool_p->callback_arg_destructor){
-        thpool_p->callback_arg_destructor(thpool_p->callback_arg.ptr);
-    }
     free(thpool_p);
     expected = THPOOL_DESTROYING;
     /* 若交换失败，不明原因，可能是弱交换的固有问题，继续等待   */
@@ -1129,7 +1175,7 @@ conc_state_block_* thpool_debug_conc_passport_init(){
 
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API 
 void thpool_debug_conc_passport_destroy(conc_state_block_ *passport){
-    if(passport == NULL){
+    if(unlikely(passport == NULL)){
         return;
     }
     /* 检查当前状态。不论哪种状态都应有警告提示。   */

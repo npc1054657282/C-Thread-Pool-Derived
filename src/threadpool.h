@@ -530,6 +530,13 @@ void thpool_thread_set_context(threadpool_thread current_thrd, void *ctx);
 
 void thpool_thread_unset_context(threadpool_thread current_thrd);
 
+/**
+ * 若用户传入的回调参数有析构函数，默认会在线程结束时解除引用。所有线程都解除引用时，回调参数会执行用户传入的析构函数。
+ * 如果想要提前解除引用，可以在线程开始回调里使用完回调参数后就手动解除引用。
+ * 如果用户这么做，则不得再在同一线程内使用回调参数，否则可能导致UAF。
+ */
+void thpool_thread_unref_callback_arg(threadpool_thread current_thrd);
+
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
 /**
  * @brief Initializes a debug concurrency passport.
