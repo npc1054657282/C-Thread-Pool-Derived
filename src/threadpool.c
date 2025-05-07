@@ -253,6 +253,12 @@ typedef struct thpool_{
     pthread_cond_t  get_job_unblock;        /* 删除原二元信号量has_jobs，变更为条件信号     */
     pthread_cond_t  put_job_unblock;        /* 用于队列已满时的信号量等待功能。             */
 
+    /**
+     * 启用TSD机制，检查当前线程是否属于此线程池。
+     * 利用此机制阻止用户在本线程池内的线程中，对其所属线程池使用`thpool_wait`、`thpool_shutdown`、`thpool_destroy`等危险操作。
+     */
+    pthread_key_t   key;
+
     atomic_bool threads_keepalive;          /* 将全局变量改为移植入内部，允许多个线程池同时存在。     */
     /**
      * @brief Atomic flag: true while thpool_put_job and thpool_get_job are active.
@@ -316,6 +322,8 @@ static void     jobqueue_destroy_unsafe(jobqueue* jobqueue_p);
 // Thread pool internal job handling functions (with synchronization)
 static int      thpool_put_job(thpool_* thpool_p, struct job* newjob_p);
 static struct job*  thpool_get_job(thpool_* thpool_p);
+// 由部分API使用，判定调用的线程是否属于线程池内。以禁止一些不应由属于线程池的线程进行的操作。
+static inline bool  thpool_is_current_thread_owner(thpool_* thpool_p);
 // 原有api改名为inner。inner的api不涉及conc_state_block
 // Inner API functions (do not involve passport checks or use counting)
 static int      thpool_wait_inner(thpool_* thpool_p);
@@ -434,6 +442,8 @@ static void* thread_do(struct thread_* thread_p){
 
     /* Assure all threads have been created before starting serving */
     thpool_* thpool_p = thread_p->thpool_p;
+
+    pthread_setspecific(thpool_p->key, thpool_p);
 
     /* Mark thread as alive (initialized) */
     atomic_fetch_add(&thpool_p->num_threads_alive, 1);
@@ -750,11 +760,19 @@ struct thpool_* thpool_init(threadpool_config *conf){
         goto cleanup_get_job_unblock;
     }
 
+    /* TSD key 初始化。         */
+    err = pthread_key_create(&thpool_p->key, NULL);
+    if (unlikely(err != 0)) {
+        thpool_log_error("thpool_init(): Could not initialize TSD key");
+        errno = err;
+        goto cleanup_put_job_unblock;
+    }
+
     /* Make threads in pool */
     thpool_p->threads = (struct thread_**)malloc(num_threads * sizeof(struct thread_ *));
     if (unlikely(thpool_p->threads == NULL)){
         thpool_log_error("thpool_init(): Could not allocate memory for threads");
-        goto cleanup_put_job_unblock;
+        goto cleanup_TSD_key;
     }
 
     /* 线程空闲锁与条件量初始化。 */
@@ -813,6 +831,8 @@ cleanup_threads_all_idle_mutex:
     pthread_mutex_destroy(&thpool_p->threads_all_idle_mutex);
 cleanup_threads_array:
     free(thpool_p->threads);
+cleanup_TSD_key:
+    pthread_key_delete(thpool_p->key);
 cleanup_put_job_unblock:
     pthread_cond_destroy(&thpool_p->put_job_unblock);
 cleanup_get_job_unblock:
@@ -858,6 +878,11 @@ cleanup_pool:
 
 /* 将thpool的threads_keepalive设置为false，并等待所有线程与正在执行中的thpool_add_work执行完毕。    */
 static int  thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *passport){
+    /* 禁止线程池内的线程本身执行`thpool_shutdown`。    */
+    if(thpool_is_current_thread_owner(thpool_p)){
+        errno = EINVAL;
+        return -1;
+    }
     enum thpool_state expected = THPOOL_ALIVE;
     /* 若交换失败，则发生了重复调用，错误退出。 */
     if(!atomic_compare_exchange_strong(&passport->state, &expected, THPOOL_SHUTTING_DOWN)){
@@ -910,6 +935,11 @@ static int  thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *pas
 
 /* Destroy the threadpool */
 static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *passport) {
+    /* 禁止线程池内的线程本身执行`thpool_destroy`。    */
+    if(thpool_is_current_thread_owner(thpool_p)){
+        errno = EINVAL;
+        return -1;
+    }
 
     enum thpool_state expected = THPOOL_SHUTDOWN;
     /* 若交换失败，情况可能有多种，分别讨论。   */
@@ -970,6 +1000,7 @@ static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *pass
     pthread_mutex_destroy(&(thpool_p->jobqueue_rwmutex));
     pthread_cond_destroy(&thpool_p->get_job_unblock);
     pthread_cond_destroy(&thpool_p->put_job_unblock);
+    pthread_key_delete(thpool_p->key);
 
     free(thpool_p);
     expected = THPOOL_DESTROYING;
@@ -1075,6 +1106,10 @@ static struct job*  thpool_get_job(thpool_* thpool_p){
     return ret;
 }
 
+static inline bool  thpool_is_current_thread_owner(thpool_* thpool_p){
+    return pthread_getspecific(thpool_p->key) == thpool_p;
+}
+
 /* Add work to the thread pool */
 static int thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
     job* newjob;
@@ -1097,6 +1132,11 @@ static int thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(threadpoo
 
 /* Wait until all jobs have finished */
 static int thpool_wait_inner(thpool_* thpool_p){
+    /* 禁止线程池内的线程本身执行`thpool_wait`。    */
+    if(thpool_is_current_thread_owner(thpool_p)){
+        errno = EINVAL;
+        return -1;
+    }
 
     /**
      * 原作者此处用了一个很优雅的while，但是因此这里对thpool_p->jobqueue.len的读取放在了一个可能发生数据竞争的位置。

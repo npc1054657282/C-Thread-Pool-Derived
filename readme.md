@@ -157,13 +157,15 @@ In this case, make sure you do not include `"utils/log.h"` or define macros mapp
 #define thpool_log_debug(fmt, ...) fprintf(stdout, "THPOOL_DEBUG: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
 #define thpool_log_info(fmt, ...)  fprintf(stdout, "THPOOL_INFO: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
 #define thpool_log_warn(fmt, ...)  fprintf(stderr, "THPOOL_WARN: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
-#define thpool_log_error(fmt, ...) do { fprintf(stderr, "THPOOL_ERROR: " fmt "\n" __VA_OPT__(,) __VA_ARGS__); /* Handle fatal error, e.g., abort() */ abort(); } while(0)
+#define thpool_log_error(fmt, ...)  fprintf(stderr, "THPOOL_ERROR: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
+#define thpool_log_fatal(fmt, ...) do { fprintf(stderr, "THPOOL_FATAL: " fmt "\n" __VA_OPT__(,) __VA_ARGS__); /* Handle fatal error, e.g., abort() */ abort(); } while(0)
 
 // Or define as empty to disable logging (error logging should typically still cause program termination)
 // #define THPOOL_LOG_DEBUG(fmt, ...)
 // #define THPOOL_LOG_INFO(fmt, ...)
 // #define THPOOL_LOG_WARN(fmt, ...)
-// #define THPOOL_LOG_ERROR(fmt, ...) do { abort(); } while(0)
+// #define THPOOL_LOG_ERROR(fmt, ...)
+// #define THPOOL_LOG_FATAL(fmt, ...) do { abort(); } while(0)
 // ... Define other levels similarly ...
 
 // --- If using the provided default logging, see "Option 1" above ---
