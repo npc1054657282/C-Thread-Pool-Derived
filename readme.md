@@ -5,7 +5,6 @@
  *  \section    examples                                    Examples
  *  \section    api-overview                                API Overview
  *  \section    structures                                  Structures
- *  \section    note-on-container_of-usage-for-thread-info  Note on `container_of` Usage for Thread Info
  *  \section    included-components-and-licensing           Included Components and Licensing
  */
 -->
@@ -40,10 +39,8 @@ During the modification process, several areas were refined or reimplemented:
 * **Thread Context and Callbacks:** Added support for thread-specific context (`thread_ctx_slot`) and callbacks executed when a thread starts (`thread_start_cb`) or finishes (`thread_end_cb`). This enables sharing resources or maintaining state across tasks executed by the same thread.
 * **Enhanced configuration options, including control over the maximum job queue size:** This allows preventing excessive memory usage by the queue and provides waiting/notification mechanisms when the queue is full.
 * **Semaphore Implementation:** The original project's custom binary semaphore implementation, which presented some unexpected behaviors and potential performance limitations in our testing, was replaced entirely. This version utilizes standard POSIX mutexes and condition variables for synchronization, aiming for more predictable and robust behavior.
-* **Task Argument Handling:** To provide a more explicit and potentially safer way to pass arguments to task functions, the single `void*` argument was replaced with a `thpool_arg` union. This allows users to clearly indicate whether they are passing a small value (`val`) or a pointer (`ptr`).
+* **Task Argument Handling:** To provide a more explicit and potentially safer way to pass arguments to task functions, the single `void*` argument was replaced with a `threadpool_arg` union. This allows users to clearly indicate whether they are passing a small value (`val`) or a pointer (`ptr`).
 * **Lifecycle Control:** The thread pool shutdown and resource destruction phases were explicitly separated (`thpool_shutdown` and `thpool_destroy`) to offer finer control over the pool's lifecycle.
-
-While the original project aimed for strict ANSI C and POSIX compliance, this version, due to the practical need for accessing thread metadata from task contexts, utilizes the `container_of` macro. While widely used in practice (notably in the Linux kernel) and generally reliable on common platforms and compilers, it is worth noting that the pointer arithmetic involved can be considered theoretically outside the strictest interpretation of the C standard regarding pointer provenance. Users in highly constrained or non-standard environments should be mindful of this.
 
 We hope these modifications make the library more flexible and suitable for a wider range of applications, while building upon the strong foundation laid by Pithikos's original work.
 
@@ -72,7 +69,7 @@ This library includes enhancements and modifications compared to the base Pithik
 * 增强的配置选项，包括控制最大任务队列大小。这有助于防止队列过度占用内存，并在队列满时提供等待/通知机制。
 * 集成了日志功能（通过`threadpool_log_config.h`进行配置，并提供基于`rxi/log.c`的可选默认实现）。
 * 引入了调试用并发通行证及其相关的API变种，用于帮助诊断线程池生命周期相关的并发问题（例如UAF）。这些可选的调试API通过在包含`threadpool.h`之前定义宏 `THPOOL_ENABLE_DEBUG_CONC_API`来启用。有关调试用并发特性的详细用法和API参考，请查阅`threadpool.h`头文件中的注释。
-* 使用`thpool_arg` Union处理任务参数，方式灵活，可以清晰地传递值或指针。
+* 使用`threadpool_arg` Union处理任务参数，方式灵活，可以清晰地传递值或指针。
 * 将线程池的关闭 (`thpool_shutdown`) 与资源销毁 (`thpool_destroy`) 分离，提供了更精细的控制。
 
 **移除特性：**
@@ -160,13 +157,15 @@ In this case, make sure you do not include `"utils/log.h"` or define macros mapp
 #define thpool_log_debug(fmt, ...) fprintf(stdout, "THPOOL_DEBUG: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
 #define thpool_log_info(fmt, ...)  fprintf(stdout, "THPOOL_INFO: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
 #define thpool_log_warn(fmt, ...)  fprintf(stderr, "THPOOL_WARN: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
-#define thpool_log_error(fmt, ...) do { fprintf(stderr, "THPOOL_ERROR: " fmt "\n" __VA_OPT__(,) __VA_ARGS__); /* Handle fatal error, e.g., abort() */ abort(); } while(0)
+#define thpool_log_error(fmt, ...)  fprintf(stderr, "THPOOL_ERROR: " fmt "\n" __VA_OPT__(,) __VA_ARGS__)
+#define thpool_log_fatal(fmt, ...) do { fprintf(stderr, "THPOOL_FATAL: " fmt "\n" __VA_OPT__(,) __VA_ARGS__); /* Handle fatal error, e.g., abort() */ abort(); } while(0)
 
 // Or define as empty to disable logging (error logging should typically still cause program termination)
 // #define THPOOL_LOG_DEBUG(fmt, ...)
 // #define THPOOL_LOG_INFO(fmt, ...)
 // #define THPOOL_LOG_WARN(fmt, ...)
-// #define THPOOL_LOG_ERROR(fmt, ...) do { abort(); } while(0)
+// #define THPOOL_LOG_ERROR(fmt, ...)
+// #define THPOOL_LOG_FATAL(fmt, ...) do { abort(); } while(0)
 // ... Define other levels similarly ...
 
 // --- If using the provided default logging, see "Option 1" above ---
@@ -187,8 +186,8 @@ Once the source files are included and logging is handled according to Option 1 
 #include "threadpool.h"
 #include "threadpool_log_config.h" // Include this to use thpool_log_* in this file
 
-// Define a task function matching the signature void (*function_p)(thpool_arg arg, void** thread_ctx_location)
-void my_task(thpool_arg arg, void** thread_ctx_location) {
+// Define a task function matching the signature void (*function_p)(threadpool_arg arg, void** thread_ctx_location)
+void my_task(threadpool_arg arg, void** thread_ctx_location) {
     // ... task logic ...
     // Use the abstract logging interfaces defined in threadpool_log_config.h
     thpool_log_debug("Task executed, arg value: %lld", arg.val);
@@ -213,7 +212,7 @@ int main() {
     }
 
     // Add work
-    thpool_arg task_arg = {.val = 123};
+    threadpool_arg task_arg = {.val = 123};
     thpool_log_info("Adding first task");
     thpool_add_work(pool, my_task, task_arg);
 
@@ -241,7 +240,7 @@ These examples demonstrate:
 * Basic thread pool initialization and task submission.
 * Using thread start and end callbacks.
 * Passing and utilizing thread-specific context data.
-* Handling task arguments with the `thpool_arg` union.
+* Handling task arguments with the `threadpool_arg` union.
 * Demonstrating thread pool shutdown and destruction.
 * More complex scenarios involving waiting for tasks or managing queue full conditions.
 
@@ -254,7 +253,7 @@ Building and running these examples can provide practical insights into how to b
 * 线程池的基础初始化和任务提交。
 * 使用线程启动和结束回调。
 * 传递和利用线程特定的上下文数据。
-* 使用`thpool_arg` Union处理任务参数。
+* 使用`threadpool_arg` Union处理任务参数。
 * 演示线程池的关闭和销毁流程。
 * 涉及等待任务或处理队列满条件等更复杂的场景。
 
@@ -295,7 +294,7 @@ Replace `thpool_easy_example` with the name of the example program you wish to r
 Here are some of the key functions provided by the library:
 
 * **`threadpool thpool_init(threadpool_config *conf)`**: Initializes a thread pool with the specified configuration.
-* **`int thpool_add_work(threadpool pool, void (*function_p)(thpool_arg, void**), thpool_arg arg_p)`**: Adds work (a task function and its argument) to the thread pool's job queue.
+* **`int thpool_add_work(threadpool pool, void (*function_p)(threadpool_arg, void**), threadpool_arg arg_p)`**: Adds work (a task function and its argument) to the thread pool's job queue.
 * **`int thpool_wait(threadpool)`**: Blocks the calling thread until all queued jobs and currently executing jobs have finished.
 * **`int thpool_reactivate(threadpool)`**: Resumes thread pool activity after being paused by `thpool_wait`.
 * **`int thpool_num_threads_working(threadpool)`**: Gets the current number of threads actively working on a job.
@@ -308,25 +307,9 @@ Here are some of the key functions provided by the library:
 ## Structures
 
 * **`threadpool`**: An opaque handle for the thread pool.
-* **`thpool_arg`**: Flexible union to carry arguments for task and callback functions (value or pointer).
+* **`threadpool_arg`**: Flexible union to carry arguments for task and callback functions (value or pointer).
 * **`threadpool_config`**: Structure used to configure the thread pool during initialization.
 * **`thpool_debug_conc_passport`**: An opaque handle for the debug concurrency passport (used with `THPOOL_ENABLE_DEBUG_CONC_API`).
-
-## Note on `container_of` Usage for Thread Info
-
-When retrieving thread-specific metadata using functions like `thpool_thread_get_id` and `thpool_thread_get_name`, this library internally utilizes a common C idiom based on the `container_of` macro (similar to the one used in the Linux kernel).
-
-This technique allows the library to return a pointer to a member within an internal thread structure (the `thread_ctx_slot` member within the `thread` structure) and then calculate the address of the containing `thread` structure from that member's address and its known offset. **The calculation involves casting the member pointer to a `uintptr_t` (an unsigned integer type guaranteed to hold a pointer value), performing integer subtraction of the member's offset, and then casting the resulting integer address back to a pointer to the containing structure.**
-
-The primary motivation for this approach is to keep the internal `thread` structure opaque to the user, providing better encapsulation, while still allowing access to essential metadata associated with the executing thread.
-
-It is important to be aware that, according to a strict interpretation of the standard C language rules, particularly concerning pointer provenance and the validity of pointers obtained through non-standard means (like arbitrary integer conversions and arithmetic), the pointer manipulation involved in `container_of` can still be considered theoretically "Undefined Behavior" (UB) when the resulting pointer is used to access the original object.
-
-However, this pattern, specifically using `uintptr_t` for the address calculation, is widely used in practice in many robust C projects (including the Linux kernel) precisely because it aligns well with how hardware treats pointers as memory addresses. In conjunction with the `offsetof` macro (which is standard and guaranteed not to cause UB for standard-layout structs), its behavior is generally reliable on most common architectures and with mainstream compilers (like GCC and Clang) that developers are likely to use. The use of `uintptr_t` is often considered a more portable and less compiler-optimization-sensitive way to perform this address calculation compared to casting to `char*` or performing arithmetic directly on unrelated pointer types.
-
-This implementation assumes that the compiler and target architecture behave in the typical manner where pointers can be safely round-tripped through `uintptr_t` for address calculations.
-
-**If you are working in a highly constrained environment, using an unusual architecture, or a non-standard compiler where you cannot verify the behavior of such pointer arithmetic and conversions, you might need to exercise caution or avoid using the `get thread info` series of functions.** In typical development scenarios on standard platforms, this usage is generally considered safe and reliable in practice, despite the theoretical UB concern.
 
 ## Included Components and Licensing
 

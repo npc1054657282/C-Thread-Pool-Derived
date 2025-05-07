@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include "threadpool.h"
 
-void task(thpool_arg arg, void ** _){
+void task(threadpool_arg arg, threadpool_thread _){
     printf("Thread #%u working on %d\n", (unsigned)pthread_self(), (int) arg.val);
 }
 
@@ -32,7 +32,7 @@ int main(){
     printf("Adding 40 tasks to threadpool\n");
     int i;
     for (i=0; i<40; i++){
-        thpool_arg arg = {.val = i};
+        threadpool_arg arg = {.val = i};
         thpool_add_work(thpool, task, arg);
     };
 

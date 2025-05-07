@@ -35,6 +35,8 @@ extern "C" {
  */
 typedef struct thpool_* threadpool;
 
+typedef struct thread_* threadpool_thread;
+
 /**
  * @brief Flexible argument carrier for task and callback functions.
  *
@@ -45,10 +47,10 @@ typedef struct thpool_* threadpool;
  * When passing a pointer to data, use the .ptr member.
  * See @ref thpool_add_work for detailed usage examples.
  */
-typedef union thpool_arg{
+typedef union threadpool_arg{
     long long val;
     void* ptr;
-} thpool_arg;
+} threadpool_arg;
 
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
 /**
@@ -135,20 +137,20 @@ typedef struct threadpool_config {
      * and initialized, but before it starts processing jobs.
      *
      * @param arg               The shared callback argument provided in @ref callback_arg.
-     * @param thread_ctx_out    Pointer to the thread's context pointer (void**).
-     * Users can set *thread_ctx_out to point to thread-specific data.
+     * @param threadpool_thread Current thread handle.
+     * Users can get access to thread-specific data and thread-metadata with current thread handle.
      */
-    void    (*thread_start_cb)(thpool_arg arg, void **thread_ctx_out);
+    void    (*thread_start_cb)(threadpool_arg arg, threadpool_thread);
     /**
      * @brief Callback function executed when a thread is about to exit.
      * 在线程结束时执行的回调。
      *
      * This function is called by a worker thread just before it terminates.
      *
-     * @param thread_ctx_out    Pointer to the thread's context pointer (void**).
-     * Users can access or clean up thread-specific data here.
+     * @param threadpool_thread Current thread handle.
+     * Users can get access to thread-specific data and thread-metadata with current thread handle.
      */
-    void    (*thread_end_cb)(void **thread_ctx_out);
+    void    (*thread_end_cb)(threadpool_thread);
     /**
      * @brief Shared argument passed to thread start callbacks.
      * 线程启动的回调参数。
@@ -163,7 +165,7 @@ typedef struct threadpool_config {
      * value via the `val` member, there are no lifetime concerns for the value itself.
      * See @ref callback_arg_destructor for cleanup of pointed-to data.
      */
-    thpool_arg  callback_arg;
+    threadpool_arg  callback_arg;
     /**
      * @brief Destructor function for @ref callback_arg.
      *
@@ -276,7 +278,7 @@ typedef struct threadpool_config {
  *     return 0;
  * }
  * // Assuming MyConfigStruct is defined elsewhere
- * // void my_thread_start_using_config(thpool_arg arg, void** ctx) {
+ * // void my_thread_start_using_config(threadpool_arg arg, threadpool_thread current_thrd) {
  * //     MyConfigStruct *config = (MyConfigStruct*)arg.ptr;
  * //     // ... use config->setting1 etc. ...
  * // }
@@ -284,7 +286,7 @@ typedef struct threadpool_config {
  * @example
  * // Example 3: Initialization with callback_arg pointing to heap-allocated data + destructor
  * typedef struct { int resource_id; } ResourceData;
- * void cleanup_resource_data(thpool_arg arg); // User-defined cleanup function
+ * void cleanup_resource_data(threadpool_arg arg); // User-defined cleanup function
  * // ... main function ...
  * { // Create a new scope to manage memory
  *     ResourceData *res_data = malloc(sizeof(ResourceData));
@@ -315,8 +317,8 @@ typedef struct threadpool_config {
  * } // Scope ends
  *
  * // User-defined cleanup function
- * // void cleanup_resource_data(thpool_arg arg) {
- * //     // arg is a copy of the thpool_arg passed during init
+ * // void cleanup_resource_data(threadpool_arg arg) {
+ * //     // arg is a copy of the threadpool_arg passed during init
  * //     ResourceData *data_to_free = (ResourceData*)arg.ptr;
  * //     // ... perform any nested cleanup if needed ...
  * //     free(data_to_free); // Free the top-level block
@@ -405,12 +407,12 @@ int thpool_num_threads_working(threadpool);
  *
  * @param pool         The thread pool handle to which the work will be added.
  * @param function_p   Pointer to the task function to add as work.
- * The function should have the signature void (*)(thpool_arg arg, void** thread_ctx_out).
+ * The function should have the signature void (*)(threadpool_arg arg, threadpoolthread current_thrd).
  * Must not be NULL.
- * @param arg          The argument for the task function, encapsulated in a thpool_arg union.
+ * @param arg          The argument for the task function, encapsulated in a threadpool_arg union.
  * This argument is passed by value.
- * 使用一个联合体thpool_arg来定义你的参数。你的工作函数仅允许将该参数解释为val或ptr其一。
- * 你在传参时，应严格根据工作函数的解析方式约定你的thpool_arg的参数传递方式是val还是ptr。
+ * 使用一个联合体threadpool_arg来定义你的参数。你的工作函数仅允许将该参数解释为val或ptr其一。
+ * 你在传参时，应严格根据工作函数的解析方式约定你的threadpool_arg的参数传递方式是val还是ptr。
  *
  * @note The user is responsible for ensuring that any data pointed to by arg.ptr
  * remains valid until the task function finishes execution.
@@ -419,7 +421,7 @@ int thpool_num_threads_working(threadpool);
  * A separate destructor for task arguments is NOT provided by the library.
  * A common pattern is to pass pointers to heap-allocated data and free the memory inside the task function.
  * Passing pointers to stack-allocated data is generally unsafe unless you can strictly guarantee the lifetime.
- * 禁止在传参时以一种方式定义thpool_arg，而在工作函数中以另一种方式解析的情况发生。
+ * 禁止在传参时以一种方式定义threadpool_arg，而在工作函数中以另一种方式解析的情况发生。
  * 如果你的传入方式是ptr，即一个结构体指针，建议你传入堆上的指针，并在工作函数中传递到其他位置或销毁。
  * 如果传入栈上的指针，有可能会因为其生命周期结束，导致工作函数使用时发生错误。
  *
@@ -427,15 +429,15 @@ int thpool_num_threads_working(threadpool);
  *
  * @example
  * // Example 1: Adding a task with a simple integer value
- * void task_process_int(thpool_arg args, void** thread_ctx_out);
+ * void task_process_int(threadpool_arg args, threadpoolthread current_thrd);
  * // ... main function ...
  *     threadpool pool = thpool_init(&conf);
  *     // ...
  *     int value_to_process = 10;
- *     thpool_arg task_arg_int = {.val = value_to_process}; // Pass value by embedding in union
+ *     threadpool_arg task_arg_int = {.val = value_to_process}; // Pass value by embedding in union
  *     thpool_add_work(pool, task_process_int, task_arg_int); // Pass union value
  * // ...
- * void task_process_int(thpool_arg args, void** thread_ctx_out) {
+ * void task_process_int(threadpool_arg args, threadpoolthread current_thrd) {
  *     int num = (int)args.val; // Access the value (be mindful of narrowing conversion)
  *     printf("Processing integer: %d\n", num);
  *     // No free needed for a value
@@ -445,7 +447,7 @@ int thpool_num_threads_working(threadpool);
  * // Example 2: Adding a task with a pointer to heap-allocated data
  * // User is responsible for freeing the data pointed to by the pointer!
  * typedef struct { double x, y; } Point;
- * void task_process_point(thpool_arg args, void** thread_ctx_out);
+ * void task_process_point(threadpool_arg args, threadpoolthread current_thrd);
  * // ... main function ...
  *     threadpool pool = thpool_init(&conf);
  *     // ...
@@ -454,7 +456,7 @@ int thpool_num_threads_working(threadpool);
  *         // handle error  
  *     }
  *     my_point->x = 1.0; my_point->y = 2.5;
- *     thpool_arg task_arg_ptr = {.ptr = my_point}; // Pass pointer by embedding in union
+ *     threadpool_arg task_arg_ptr = {.ptr = my_point}; // Pass pointer by embedding in union
  *     thpool_add_work(pool, task_process_point, task_arg_ptr); // Pass union value containing pointer
  *
  * // ... Later in main or elsewhere, after submitting,
@@ -462,7 +464,7 @@ int thpool_num_threads_working(threadpool);
  * //     This requires coordination (e.g., task signals completion, or task frees itself).
  * //     A common pattern is for the task itself to free the memory it received via pointer.
  * // ...
- * void task_process_point(thpool_arg args, void** thread_ctx_out) {
+ * void task_process_point(threadpool_arg args, threadpoolthread current_thrd) {
  *     Point *p = (Point*)args.ptr; // Access the pointer
  *     printf("Processing point: (%f, %f)\n", p->x, p->y);
  *     free(p); // <-- Task takes responsibility for freeing heap data
@@ -474,15 +476,15 @@ int thpool_num_threads_working(threadpool);
  * @example
  * // Example 3: Adding a task with a pointer to stack-allocated data (DANGEROUS!)
  * // This will likely lead to a Use-After-Free error if the task runs after the calling function returns.
- * void task_use_stack_data(thpool_arg args, void** thread_ctx_out);
+ * void task_use_stack_data(threadpool_arg args, threadpoolthread current_thrd);
  * // ... inside some_function() { ...
  *     int local_value = 5;
- *     thpool_arg task_arg_stack = {.ptr = &local_value};
+ *     threadpool_arg task_arg_stack = {.ptr = &local_value};
  *     thpool_add_work(pool, task_use_stack_data, task_arg_stack); // DANGEROUS! Pointer becomes invalid when some_function returns.
  * // ... some_function returns ...
  * // ... task_use_stack_data runs later and uses invalid pointer ...
  * // }
- * // void task_use_stack_data(thpool_arg args, void** thread_ctx_out) {
+ * // void task_use_stack_data(threadpool_arg args, threadpoolthread current_thrd) {
  * //     int *num_ptr = (int*)args.ptr;
  * //     printf("Processing number: %d\n", *num_ptr); // CRASH or UB!
  * // }
@@ -491,7 +493,7 @@ int thpool_num_threads_working(threadpool);
  * memory's lifetime covers the entire execution of the task function. This is hard to ensure.
  * Prefer passing values or pointers to dynamically allocated or static storage duration data.
  */
-int thpool_add_work(threadpool, void (*function_p)(thpool_arg, void**), thpool_arg arg_p);
+int thpool_add_work(threadpool, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
 
 /**
  * @brief Gets the ID of the current thread pool thread.
@@ -500,15 +502,11 @@ int thpool_add_work(threadpool, void (*function_p)(thpool_arg, void**), thpool_a
  * @ref thread_start_cb, @ref thread_end_cb, or a task function.
  * It retrieves the thread's internal ID from its thread context.
  *
- * @param thread_ctx_location A pointer to the thread's context pointer (void**),
+ * @param current_thrd  Current thread handle,
  * as passed to the callback or task function.
  * @return int The internal ID of the calling thread pool thread.
- * 
- * @note This function, along with @ref thpool_thread_get_name, relies on the `container_of`
- * macro internally. Please see the general note on `container_of` usage above for details
- * on potential theoretical undefined behavior and compiler support assumptions.
  */
-int thpool_thread_get_id(void **thread_ctx_location);
+int thpool_thread_get_id(threadpool_thread current_thrd);
 
 /**
  * @brief Gets the name of the current thread pool thread.
@@ -517,18 +515,27 @@ int thpool_thread_get_id(void **thread_ctx_location);
  * @ref thread_start_cb, @ref thread_end_cb, or a task function.
  * It retrieves the thread's name from its thread context.
  *
- * @param thread_ctx_location A pointer to the thread's context pointer (void**),
+ * @param current_thrd Current thread handle,
  * as passed to the callback or task function.
  * @return const char* A pointer to the null-terminated string containing the thread's name.
  * The returned pointer points to internal thread pool memory and must
  * not be modified or freed by the caller. The string is valid for
  * the lifetime of the thread.
- * 
- * @note This function, along with @ref thpool_thread_get_id, relies on the `container_of`
- * macro internally. Please see the general note on `container_of` usage above for details
- * on potential theoretical undefined behavior and compiler support assumptions.
  */
-const char* thpool_thread_get_name(void **thread_ctx_location);
+const char* thpool_thread_get_name(threadpool_thread current_thrd);
+
+void * thpool_thread_get_context(threadpool_thread current_thrd);
+
+void thpool_thread_set_context(threadpool_thread current_thrd, void *ctx);
+
+void thpool_thread_unset_context(threadpool_thread current_thrd);
+
+/**
+ * 若用户传入的回调参数有析构函数，默认会在线程结束时解除引用。所有线程都解除引用时，回调参数会执行用户传入的析构函数。
+ * 如果想要提前解除引用，可以在线程开始回调里使用完回调参数后就手动解除引用。
+ * 如果用户这么做，则不得再在同一线程内使用回调参数，否则可能导致UAF。
+ */
+void thpool_thread_unref_callback_arg(threadpool_thread current_thrd);
 
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
 /**
@@ -574,7 +581,7 @@ void thpool_debug_conc_passport_destroy(thpool_debug_conc_passport);
  * @return int         0 on success, -1 otherwise (e.g., NULL handles, passport mismatch, or pool not in ALIVE state).
  * @note User is responsible for managing lifetime of data pointed to by `arg.ptr`.
  */
-int thpool_add_work_debug_conc(threadpool, thpool_debug_conc_passport, void (*function_p)(thpool_arg, void**), thpool_arg arg_p);
+int thpool_add_work_debug_conc(threadpool, thpool_debug_conc_passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
 
 /**
  * @brief Waits for all queued jobs to finish using a user-provided passport for diagnosis.
