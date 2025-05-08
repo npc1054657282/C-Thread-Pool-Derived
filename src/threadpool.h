@@ -35,6 +35,18 @@ extern "C" {
  */
 typedef struct thpool_* threadpool;
 
+/**
+ * @brief An opaque handle for a worker thread within the thread pool.
+ *
+ * This handle is passed to task functions and thread lifecycle callbacks
+ * (`thread_start_cb`, `thread_end_cb`). It allows accessing thread-specific
+ * information and managing thread-local context data. Users should not
+ * access its internal members directly.
+ *
+ * `threadpool_thread`是线程池中工作线程的不透明句柄。
+ * 该句柄会被传递给任务函数和线程生命周期回调（`thread_start_cb`, `thread_end_cb`）。
+ * 它允许访问线程特定信息和管理线程本地上下文数据。使用者不应直接访问其内部成员。
+ */
 typedef struct thread_* threadpool_thread;
 
 /**
@@ -42,10 +54,17 @@ typedef struct thread_* threadpool_thread;
  *
  * This union allows passing either a small value (up to the size of long long)
  * or a pointer (void*) as a single parameter.
+ * 
+ * 任务和回调函数的灵活参数载体。
+ * 这个联合体允许将一个小型值（最大为`long long`的大小）或一个指针（void*）
+ * 作为单个参数传递给任务函数和线程启动回调。
  *
  * @note When passing a value that fits within 'val', use the .val member.
  * When passing a pointer to data, use the .ptr member.
  * See @ref thpool_add_work for detailed usage examples.
+ * 
+ * 传递适合 'val' 的值时，使用`.val`成员。传递数据指针时，使用`.ptr`成员。
+ * 参见`thpool_add_work`获取详细使用示例。
  */
 typedef union threadpool_arg{
     long long val;
@@ -89,11 +108,11 @@ typedef union threadpool_arg{
  * 并在线程池初始化期间通过`threadpool_config`结构提供一个指向它的指针来启用这个调试特性。
  * 使用调试并发api替换旧有的api时，用户必须同时提供线程池句柄及其绑定通行证。
  * 
- * **内存管理约定：**用户必须管理护照的内存。
+ * **内存管理约定：**用户必须管理通行证的内存。
  * 用户必须确保通行证的生存期严格长于相关线程池的生存期，并且覆盖使用该通行证的所有API调用。
  * 用户在为线程池提供调试并发passport以后，利用该passport和调试并发api替换旧有的api。
  * 如果遵循这个约定，调试并发API可以帮助检测在线程池池生命周期中不正确的时机进行的API调用，
- * 根据护照状态记录警告或错误，潜在地阻止池对象本身在释放后被使用。
+ * 根据通行证状态记录警告或错误，潜在地阻止池对象本身在释放后被使用。
  */
 typedef conc_state_block_* thpool_debug_conc_passport;
 #endif
@@ -111,78 +130,130 @@ typedef struct threadpool_config {
      *
      * Worker threads will be named in the format "prefix-ID".
      * Limited to 6 characters plus null terminator.
+     * 
+     * 工作线程名称前缀。工作线程将命名为“prefix-ID”格式。
+     * 限制为6个字符加上空终止符，共7个字节。
      */
     char    thread_name_prefix[7];
     /**
      * @brief Number of worker threads to create.
-     * If negative, treated as 0. A value of 0 means the job queue can be used
-     * for task storage, but no jobs will be executed by threads.
-     * Supplying a non-positive value for `num_threads` is generally discouraged
-     * if the pool is intended to execute tasks.
+     *
+     * Must be a positive integer. If a non-positive value (0 or negative) is provided,
+     * `thpool_init` will fail and return NULL.
+     *
+     * 要创建的工作线程数量。
+     * 必须是正整数。如果提供非正值（0 或负数），`thpool_init` 将失败并返回 NULL。
      */
     int     num_threads;
     /**
      * @brief Maximum number of jobs allowed in the queue.
      *
      * If greater than 0, limits the queue size. Adding work when the queue is full
-     * will block until space is available or the thread pool is destroyed/made inactive.
+     * will block until space is available or the thread pool is shutdown.
      * If 0 or negative, the queue size is unlimited (limited only by memory).
+     * 
+     * 队列中允许的最大任务数量。
+     * 如果大于0，则限制任务队列大小。当队列已满时添加任务将阻塞，直到任务队列有空间可用或线程池被shutdown。
+     * 如果为0或负数，则任务队列大小无限制（仅受内存限制）。
      */
     int     work_num_max;
     /**
      * @brief Callback function executed when a thread starts.
-     * 在线程启动时执行的回调。
      *
      * This function is called by a worker thread after it has been created
      * and initialized, but before it starts processing jobs.
+     * 
+     * 在线程启动时执行的回调。
      *
      * @param arg               The shared callback argument provided in @ref callback_arg.
-     * @param threadpool_thread Current thread handle.
+     * 在`callback_arg`中提供的共享回调参数。
+     * @param current_thrd      Current thread handle.
      * Users can get access to thread-specific data and thread-metadata with current thread handle.
+     * 用户可以使用当前线程句柄访问线程特定数据和线程元数据。
      */
-    void    (*thread_start_cb)(threadpool_arg arg, threadpool_thread);
+    void    (*thread_start_cb)(threadpool_arg, threadpool_thread);
     /**
      * @brief Callback function executed when a thread is about to exit.
-     * 在线程结束时执行的回调。
      *
      * This function is called by a worker thread just before it terminates.
+     * 
+     * 在线程结束时执行的回调。
      *
-     * @param threadpool_thread Current thread handle.
+     * @param current_thrd      Current thread handle.
      * Users can get access to thread-specific data and thread-metadata with current thread handle.
+     * 用户可以使用当前线程句柄访问线程特定数据和线程元数据。
      */
     void    (*thread_end_cb)(threadpool_thread);
     /**
      * @brief Shared argument passed to thread start callbacks.
-     * 线程启动的回调参数。
      *
      * This argument is passed to the @ref thread_start_cb.
-     * If stored in thread context, it can be potentially passed to @ref thread_end_cb.
+     * If stored in thread context, it can be potentially passed to @ref thread_end_cb  and task functions.
      * It should contain configuration or shared data needed by the threads.
-     * 用户可以通过把它寄存在线程上下文中，以使得`thread_end_cb`使用此参数。
+     * 
+     * 传递给线程启动回调的共享参数。
+     * 这个参数会被传递给`thread_start_cb`。
+     * 如果用户将它存储在线程上下文中，`thread_end_cb`和任务函数也可以访问它。
+     * 它应包含所有线程共同需求的配置或共享数据。
      *
      * @note If passing a pointer via the `ptr` member, the lifetime of the data
-     * pointed to MUST exceed the lifetime of the thread pool. If passing a simple
-     * value via the `val` member, there are no lifetime concerns for the value itself.
-     * See @ref callback_arg_destructor for cleanup of pointed-to data.
+     * pointed to is managed by a reference count if a `callback_arg_destructor`
+     * is provided. Each worker thread and the thread pool initialization
+     * initially hold a reference. References are released when the thread metadata
+     * is destroyed (during the `thpool_destroy` process) or when
+     * `thpool_thread_unref_callback_arg` is called from within a thread callback.
+     * The destructor is called when the last reference is released. If no destructor
+     * is provided, the user is solely responsible for managing the lifetime of
+     * the pointed-to data. If passing a simple value via the `val` member,
+     * there are no lifetime concerns for the value itself.
+     * 
+     * 如果通过`ptr`成员传递指针，并且提供了`callback_arg_destructor`，
+     * 则指向的数据的生命周期由引用计数管理。每个工作线程和线程池初始化
+     * 最初都持有一个引用。当线程元数据被销毁（`thpool_destroy`过程中），
+     * 或线程回调内部调用`thpool_thread_unref_callback_arg`时，引用会被释放。
+     * 当最后一个引用被释放时，会调用析构函数。
+     * 如果没有主动干预，`callback_arg`的生存期与线程池本身一样长。
+     * 如果没有提供析构函数，则用户完全负责管理指针指向的数据的生命周期。
+     * 如果通过 `val` 成员传递简单值，则值本身没有生命周期问题。
+     * 
+     * **Ownership Transfer:** If `thpool_init` returns successfully and a `callback_arg_destructor`
+     * is provided, the ownership and lifetime management of the data pointed to by
+     * `callback_arg.ptr` is transferred to the thread pool. If `thpool_init` fails,
+     * the ownership remains with the caller, and the caller is responsible for cleanup.
+     * 
+     * **所有权转移：** 如果提供了`callback_arg_destructor`且`thpool_init`成功返回，
+     * 则`callback_arg.ptr`指向的数据的所有权和生命周期管理将转移给线程池托管。
+     * 如果`thpool_init`失败，所有权仍归调用者所有，调用者负责清理。
+     * 
+     * @ref callback_arg_destructor for cleanup of pointed-to data.
+     * 参见`callback_arg_destructor`以了解指向数据的清理。
      */
     threadpool_arg  callback_arg;
     /**
      * @brief Destructor function for @ref callback_arg.
      *
      * If the data pointed to by callback_arg.ptr requires cleanup (e.g., was malloc'ed),
-     * provide a destructor function here.
+     * provide a destructor function here. This function will be called when the
+     * reference count for `callback_arg` drops to zero.
+     * 
+     * `callback_arg` 的析构函数。
+     * 如果`callback_arg.ptr`指向的数据需要清理（例如，使用`malloc`分配），
+     * 在此处提供一个析构函数。当`callback_arg`的引用计数降至零时，将调用此函数。
      *
      * @param arg   The callback argument value (a copy of @ref callback_arg) to be destructed.
-     * Only the `ptr` member is typically relevant for destruction.
+     * Only the `ptr` member is relevant for destruction.For proper resource management,
+     * non-pointer resources intended to be destructed (e.g., file descriptor) 
+     * should be wrapped in a struct and passed via `ptr`.
+     * 要析构的回调参数值（`callback_arg`的副本）。
+     * 只有 `ptr` 成员与析构相关。为了正确的资源管理，如果用户想要自动析构一个非指针资源（如文件描述符），
+     * 应将它包装在结构体中并通过 `ptr` 传递。
      *
      * @note Set to NULL if callback_arg requires no cleanup (e.g., is just a value,
      * points to static/global memory, or points to stack/compound literal
      * whose scope outlives the thread pool's destruction).
-     * This function is called during @ref thpool_destroy.
-     * callback_arg的析构函数，若它在栈上或是值传递，或者没有callback_arg，则应设置为NULL。
-     * 它直到`thpool_destroy`才会被触发。
-     * 因此，即使不是设计本意，用户可以通过把`callback_arg.ptr`保存在各个线程的`thread_ctx`中，
-     * 以实现将线程启动回调参数当作一种跨线程共享资源来使用。
+     * 
+     * 若没有或不需要清理`callback_arg`，比如说参数是值传递，或者指针指向全局/静态资源，
+     * 或是指向作用域超出线程池销毁范围的栈/复合字面量，则应设置为`NULL`。
      */
     void    (*callback_arg_destructor)(void *);
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
@@ -221,7 +292,7 @@ typedef struct threadpool_config {
  *
  * @param conf Pointer to a threadpool_config structure containing initialization options.
  * Must not be NULL. The memory pointed to by @p conf is only needed during the call to thpool_init.
- * conf的生存周期仅需要维护到thpool_init调用结束为止。
+ * `conf`的生存周期仅需要维护到`thpool_init`调用结束为止。
  * 
  * @return threadpool A handle to the created thread pool on success, or NULL on error.
  * Returns NULL if memory allocation fails or thread creation fails, or passport binding/initialization fails.
@@ -330,13 +401,25 @@ threadpool thpool_init(threadpool_config *conf);
  * @brief Initiates the shutdown process for the thread pool.
  *
  * Signals all worker threads to exit their job processing loop after finishing
- * their current job. Waits for all threads to become idle and the job queue
+ * their current job. Waits for all threads to become not alive and the job queue
  * to be processed or cleared. The thread pool transitions to the SHUTDOWN state.
- * Resources (threads, job queue memory, mutexes, etc.) are NOT freed by this function.
+ * Resources (threads metadata, job queue memory, mutexes, etc.) are NOT freed by this function.
  * Use @ref thpool_destroy to free resources after shutdown is complete.
+ * 
+ * 通知所有工作线程在完成当前任务后退出其任务处理循环。等待所有线程不再存活，
+ * 并且任务队列被处理或清空。线程池转换为`SHUTDOWN`状态。
+ * 此函数不会释放资源（线程元数据、任务队列内存、互斥锁等）。
+ * 在关闭完成后，使用`thpool_destroy`释放资源。
+ * 
+ * @note This function blocks until all threads run `thread_end_cb`(if exist).
+ * 此函数会阻塞，直到所有线程执行完退出回调（如果有的话）。
  *
  * @param threadpool The thread pool handle. Must not be NULL.
- * @return int     0 on success, -1 on error (e.g., thpool_p is NULL, or cannot initiate shutdown from the current state).
+ * 线程池句柄。不能为`NULL`。
+ * @return int     0 on success, -1 on error (e.g., thpool_p is NULL, or cannot initiate shutdown from the current state,
+ * or called from within a thread pool worker thread).
+ * 成功时返回 0，错误时返回 -1（例如，`thpool_p`为`NULL`，或处于无法被shutdown的状态，
+ * 或从线程池工作线程内部调用）。
  */
 int thpool_shutdown(threadpool);
 
@@ -347,10 +430,18 @@ int thpool_shutdown(threadpool);
  * (job queue memory, mutexes, condition variables, thread structs).
  * It requires the thread pool to be in the SHUTDOWN state (e.g., after calling @ref thpool_shutdown).
  * If the thread pool is in the ALIVE state, it will attempt to call shutdown automatically (with a warning).
+ * 
+ * 销毁线程池并释放其资源。
+ * 此函数释放与线程池关联的所有资源（任务队列内存、互斥锁、条件变量、线程元数据结构体）。
+ * 它要求线程池处于`SHUTDOWN`状态（在调用`thpool_shutdown`之后）。
+ * 如果线程池处于`ALIVE`状态，它将尝试自动调用`shutdown`（并发出警告）。
  *
- * @note This function blocks until all threads have exited and all resources are freed.
  * @param threadpool The thread pool handle to destroy. Must not be NULL.
- * @return int     0 on success, -1 on error (e.g., thpool_p is NULL, or cannot complete destruction from the current state).
+ * 要销毁的线程池句柄。不能为`NULL`。
+ * @return int     0 on success, -1 on error (e.g., thpool_p is NULL, or cannot complete destruction from the current state,
+ * or called from within a thread pool worker thread).
+ * 成功时返回 0，错误时返回 -1（例如，`thpool_p`为`NULL`，或处于无法被销毁的状态，
+ * 或从线程池工作线程内部调用）。
  */
 int thpool_destroy(threadpool);
 
@@ -361,21 +452,25 @@ int thpool_destroy(threadpool);
  * by worker threads have finished. Once the job queue is empty and all worker threads
  * are idle, the function returns.
  *
- * Smart polling is used internally. The polling interval increases if jobs are slow
- * to finish, assuming heavy processing.
- *
  * After this function returns, the thread pool enters an 'inactive' state where
  * adding new work or retrieving jobs is blocked.
  * Use @ref thpool_reactivate to resume normal operation or @ref thpool_shutdown
  * to shut down the pool permanently.
  * 
- * 添加了一些保证：在thpool_wait执行完时，thpool进入inactive状态。
- * 此状态保证thpool的所有获得新工作与添加新工作的行为均被阻塞。
- * 使用thpool_reactivate让thpool恢复active状态，或者用thpool_shutdown彻底关闭thpool，
+ * 等待所有排队任务完成。
+ * 阻塞调用线程，直到当前在队列中或正在由工作线程执行的所有任务完成。
+ * 一旦任务队列为空且所有工作线程空闲，函数返回。
+ * 添加了一些保证：在`thpool_wait`执行完时，线程池进入`inactive`状态。
+ * 此状态下所有获得新工作与添加新工作的行为均被阻塞。
+ * 使用`thpool_reactivate`让线程池恢复`active`状态，或者用`thpool_shutdown`彻底关闭线程池，
  * 方可解除以上行为的阻塞。
  *
- * @param threadpool The thread pool to wait for.
- * @return int     0 on success, -1 on error (e.g., thpool_p is NULL, or pool is not in ALIVE state when called).
+ * @param threadpool The thread pool to wait for. Must not be NULL.
+ * 要等待的线程池。不能为 NULL。
+ * @return int     0 on success, -1 on error (e.g., thpool_p is NULL, or pool is not in ALIVE state when called,
+ * or called from within a thread pool worker thread).
+ * 成功时返回 0，错误时返回 -1（例如，`thpool_p`为`NULL`，或调用时线程池不在`ALIVE`状态，
+ * 或从线程池工作线程内部调用）。
  */
 int thpool_wait(threadpool);
 
@@ -387,16 +482,21 @@ int thpool_wait(threadpool);
  * to retrieve jobs.
  * 解除`thpool_wait`引发的线程不活跃状态，让线程的任务获取与添加解除阻塞。
  *
- * @param threadpool The thread pool to reactivate.
+ * @param threadpool The thread pool to reactivate. Must not be NULL.
+ * 要重新激活的线程池。不能为`NULL`。
  * @return int     0 on success, -1 on error (e.g., thpool_p is NULL, or pool is not in ALIVE state when called).
+ * 成功时返回 0，错误时返回 -1（例如，thpool_p 为 NULL，或调用时线程池不在 ALIVE 状态。
  */
 int thpool_reactivate(threadpool);
 
 /**
  * @brief Gets the current number of threads working on a job.
+ * 获取当前正在执行任务的线程数量。
  *
  * @param threadpool The thread pool handle. Must not be NULL.
+ * 线程池句柄。不能为 NULL。
  * @return int     The number of threads currently executing a job (>= 0), or -1 on error (e.g., thpool_p is NULL, or pool is not in ALIVE state when called).
+ * 当前正在执行任务的线程数量（>= 0），或错误时返回-1（例如，`thpool_p`为`NULL`，或调用时线程池不在`ALIVE`状态）。
  */
 int thpool_num_threads_working(threadpool);
 
@@ -404,6 +504,8 @@ int thpool_num_threads_working(threadpool);
  * @brief Add work to the job queue.
  *
  * Takes a task function and its argument and adds it to the thread pool's job queue.
+ * 
+ * 接受一个任务函数及其参数，并将其添加到线程池的任务队列。
  *
  * @param pool         The thread pool handle to which the work will be added.
  * @param function_p   Pointer to the task function to add as work.
@@ -411,8 +513,8 @@ int thpool_num_threads_working(threadpool);
  * Must not be NULL.
  * @param arg          The argument for the task function, encapsulated in a threadpool_arg union.
  * This argument is passed by value.
- * 使用一个联合体threadpool_arg来定义你的参数。你的工作函数仅允许将该参数解释为val或ptr其一。
- * 你在传参时，应严格根据工作函数的解析方式约定你的threadpool_arg的参数传递方式是val还是ptr。
+ * 使用一个联合体`threadpool_arg`来定义你的参数。你的工作函数仅允许将该参数解释为`val`或`ptr`其一。
+ * 你在传参时，应严格根据工作函数的解析方式约定你的`threadpool_arg`的参数传递方式是`val`还是`ptr`。
  *
  * @note The user is responsible for ensuring that any data pointed to by arg.ptr
  * remains valid until the task function finishes execution.
@@ -421,11 +523,12 @@ int thpool_num_threads_working(threadpool);
  * A separate destructor for task arguments is NOT provided by the library.
  * A common pattern is to pass pointers to heap-allocated data and free the memory inside the task function.
  * Passing pointers to stack-allocated data is generally unsafe unless you can strictly guarantee the lifetime.
- * 禁止在传参时以一种方式定义threadpool_arg，而在工作函数中以另一种方式解析的情况发生。
- * 如果你的传入方式是ptr，即一个结构体指针，建议你传入堆上的指针，并在工作函数中传递到其他位置或销毁。
+ * 禁止在传参时以一种方式定义`threadpool_arg`，而在工作函数中以另一种方式解析的情况发生。
+ * 如果你的传入方式是`ptr`，即一个结构体指针，建议你传入堆上的指针，并在工作函数中传递到其他位置或销毁。
  * 如果传入栈上的指针，有可能会因为其生命周期结束，导致工作函数使用时发生错误。
  *
  * @return int         0 on success (job added), -1 otherwise (e.g., thread pool is being destroyed).
+ * 成功时返回0（任务已添加），否则返回-1（例如线程池正在销毁）。
  *
  * @example
  * // Example 1: Adding a task with a simple integer value
@@ -500,11 +603,17 @@ int thpool_add_work(threadpool, void (*function_p)(threadpool_arg, threadpool_th
  *
  * This function is intended to be called from within a worker thread's
  * @ref thread_start_cb, @ref thread_end_cb, or a task function.
- * It retrieves the thread's internal ID from its thread context.
+ * It retrieves the thread's internal ID from its thread metadata.
+ * 
+ * 获取当前线程池线程的 ID。
+ * 
+ * 它从线程元数据中检索线程的内部ID。
  *
  * @param current_thrd  Current thread handle,
  * as passed to the callback or task function.
+ * 当前线程句柄，线程池将它作为参数传递给回调或任务函数中以获取。不能为`NULL`。
  * @return int The internal ID of the calling thread pool thread.
+ * 返回调用线程池线程的内部ID，如果`current_thrd`为`NULL`则返回-1。
  */
 int thpool_thread_get_id(threadpool_thread current_thrd);
 
@@ -513,27 +622,115 @@ int thpool_thread_get_id(threadpool_thread current_thrd);
  *
  * This function is intended to be called from within a worker thread's
  * @ref thread_start_cb, @ref thread_end_cb, or a task function.
- * It retrieves the thread's name from its thread context.
+ * It retrieves the thread's name from its thread metadata.
+ * 
+ * 获取当前线程池线程的名称。
+ * 此函数旨在从工作线程的`thread_start_cb`、`thread_end_cb`或任务函数内部调用。
+ * 它从线程元数据中检索线程的名称。
  *
  * @param current_thrd Current thread handle,
  * as passed to the callback or task function.
+ * 当前线程句柄，线程池将它作为参数传递给回调或任务函数中以获取。不能为`NULL`。
  * @return const char* A pointer to the null-terminated string containing the thread's name.
  * The returned pointer points to internal thread pool memory and must
  * not be modified or freed by the caller. The string is valid for
  * the lifetime of the thread.
+ * 返回指向包含线程名称的以`'\0'`结尾的字符串的指针。
+ * 返回的指针指向线程池内部内存，调用者不得修改或释放。
+ * 字符串在线程的生命周期内有效。如果`current_thrd`为`NULL`则返回`NULL`。
  */
 const char* thpool_thread_get_name(threadpool_thread current_thrd);
 
+/**
+ * @brief Gets the thread-specific context data for the current thread.
+ *
+ * This function is intended to be called from within a worker thread's
+ * @ref thread_start_cb, @ref thread_end_cb, or a task function.
+ * It retrieves the pointer to the user-managed thread context data
+ * previously set using @ref thpool_thread_set_context.
+ * 
+ * 获取当前线程池线程的线程特定上下文数据。
+ * 此函数旨在从工作线程的`thread_start_cb`、`thread_end_cb`或任务函数内部调用。
+ * 它检索先前使用`thpool_thread_set_context`设置的用户管理的线程上下文数据的指针。
+ *
+ * @param current_thrd Current thread handle ( @ref threadpool_thread). Must not be NULL.
+ * 当前线程句柄，线程池将它作为参数传递给回调或任务函数中以获取。不能为`NULL`。
+ * @return void* A pointer to the thread-specific context data, or NULL if no context
+ * has been set or if current_thrd is NULL.
+ * 指向线程特定上下文数据的指针，如果未设置上下文或`current_thrd`为`NULL`则返回`NULL`。
+ */
 void * thpool_thread_get_context(threadpool_thread current_thrd);
 
+/**
+ * @brief Sets the thread-specific context data for the current thread.
+ *
+ * This function is intended to be called from within a worker thread's
+ * @ref thread_start_cb, @ref thread_end_cb, or a task function.
+ * It allows the user to associate arbitrary data with the current thread.
+ * The lifetime and management of the memory pointed to by `ctx` is
+ * the responsibility of the user.
+ * 
+ * 设置当前线程的线程特定上下文数据。
+ * 此函数旨在从工作线程的`thread_start_cb`、`thread_end_cb`或任务函数内部调用。
+ * 它允许用户将任意数据与当前线程关联。指向`ctx`的内存的生命周期和管理是用户的责任。
+ *
+ * @param current_thrd Current thread handle (@ref threadpool_thread). Must not be NULL.
+ * 当前线程句柄，线程池将它作为参数传递给回调或任务函数中以获取。不能为`NULL`。
+ * @param ctx          A pointer to the user-managed context data to associate with the thread.
+ * Can be NULL to clear the context.
+ * 指向要与线程关联的用户管理的上下文数据的指针。
+ * 可以为`NULL`以清除上下文。如果这么做，语义和`thpool_thread_unset_context`相同。
+ */
 void thpool_thread_set_context(threadpool_thread current_thrd, void *ctx);
 
+/**
+ * @brief Clears the thread-specific context data for the current thread.
+ *
+ * This is a convenience function equivalent to calling
+ * `thpool_thread_set_context(current_thrd, NULL)`.
+ * 
+ * 清除当前线程的线程特定上下文数据。
+ * 这是调用`thpool_thread_set_context(current_thrd, NULL)`的便捷函数。
+ *
+ * @param current_thrd Current thread handle (@ref threadpool_thread). Must not be NULL.
+ * 当前线程句柄，线程池将它作为参数传递给回调或任务函数中以获取。不能为`NULL`。
+ */
 void thpool_thread_unset_context(threadpool_thread current_thrd);
 
+
 /**
- * 若用户传入的回调参数有析构函数，默认会在线程结束时解除引用。所有线程都解除引用时，回调参数会执行用户传入的析构函数。
- * 如果想要提前解除引用，可以在线程开始回调里使用完回调参数后就手动解除引用。
+ * @brief Decrements the reference count for the shared callback argument
+ * associated with the current thread.
+ * 递减与当前线程关联的共享回调参数的引用计数。
+ *
+ * If a `callback_arg_destructor` was provided during thread pool initialization,
+ * each worker thread initially holds a reference to the `callback_arg`.
+ * By default, this reference is released automatically when the thread metadata
+ * is destroyed (during the `thpool_destroy` process). This function allows the user
+ * to manually release the reference earlier, for example, after the `callback_arg`
+ * is no longer needed within the thread (e.g., when the `thread_start_cb` finishes).
+ * 
+ * 如果在线程池初始化期间提供了`callback_arg_destructor`，
+ * 每个工作线程最初都持有`callback_arg`的一个引用。
+ * 默认情况下，此引用在线程元数据被销毁时（在`thpool_destroy`过程中）自动释放。
+ * 此函数允许用户在线程中不再需要`callback_arg`时提前手动释放引用
+ * （例如在`thread_start_cb`执行结束时）。
  * 如果用户这么做，则不得再在同一线程内使用回调参数，否则可能导致UAF。
+ *
+ * When the reference count for the `callback_arg` drops to zero across all
+ * threads and the thread pool initialization process, the provided
+ * `callback_arg_destructor` will be called.
+ * 
+ * 当`callback_arg`的引用计数在所有线程和线程池初始化过程中降至零时，
+ * 将调用用户提供的`callback_arg_destructor`。
+ *
+ * Calling this function multiple times from the same thread, or calling it
+ * when the thread does not hold a reference, has no effect.
+ * 
+ * 从同一线程多次调用此函数，或在线程不持有引用时调用它，没有效果。
+ *
+ * @param current_thrd Current thread handle (@ref threadpool_thread). Must not be NULL.
+ * 当前线程句柄，线程池将它作为参数传递给回调或任务函数中以获取。不能为`NULL`。
  */
 void thpool_thread_unref_callback_arg(threadpool_thread current_thrd);
 
@@ -545,8 +742,13 @@ void thpool_thread_unref_callback_arg(threadpool_thread current_thrd);
  * then be provided to @ref thpool_init via the `passport` field in the
  * @ref threadpool_config structure to enable debug concurrency features
  * for a thread pool.
+ * 
+ * 初始化调试并发通行证。
+ * 分配并初始化一个新的并发通行证。然后可以通过`threadpool_config`
+ * 结构中的`passport`字段将其提供给`thpool_init`，以启用线程池的调试并发功能。
  *
  * @return thpool_debug_conc_passport A handle to the newly created passport on success, or NULL on error.
+ * 成功时返回新创建的通行证句柄，错误时返回`NULL`。
  */
 thpool_debug_conc_passport thpool_debug_conc_passport_init();
 
@@ -560,8 +762,15 @@ thpool_debug_conc_passport thpool_debug_conc_passport_init();
  * Logs warnings if the passport is destroyed while the thread pool is
  * not in a terminal state (UNBIND or DESTROYED), which indicates
  * a violation of the passport lifetime convention.
+ * 
+ * 释放与并发通行证关联的内存。
+ * 提供通行证给`thpool_init`的用户负责在关联的线程池被销毁后（例如通过`thpool_destroy_debug_conc`）
+ * 调用此函数。
+ * 如果在线程池未处于终止状态（`UNBIND`或`DESTROYED`）时销毁通行证，会记录警告，
+ * 这表明违反了通行证生命周期约定。
  *
  * @param passport The passport handle to destroy. Can be NULL.
+ * 要销毁的通行证句柄。可以为`NULL`。
  */
 void thpool_debug_conc_passport_destroy(thpool_debug_conc_passport);
 
@@ -572,14 +781,24 @@ void thpool_debug_conc_passport_destroy(thpool_debug_conc_passport);
  * to provide the associated concurrency passport. This enables runtime
  * state checks and validation for **debugging and diagnosing** lifecycle-related
  * API misuse.
+ * 
+ * 使用用户提供的通行证将任务添加到任务队列以进行诊断。
+ * 此函数类似于`thpool_add_work`，但要求调用者提供关联的并发通行证。
+ * 这使得能够在运行时进行状态检查和验证，以**调试和诊断**生命周期相关的API误用。
  *
  * @param thpool_p   The thread pool handle. Must not be NULL.
+ * 线程池句柄。不能为`NULL`。
  * @param passport   The user-provided concurrency passport. Must be bound to thpool_p and not be NULL.
  * The passport's lifetime MUST be strictly longer than the thread pool's.
+ * 用户提供的并发通行证。必须绑定到`thpool_p`且不能为`NULL`。通行证的生命周期必须严格长于线程池的生命周期。
  * @param function_p Pointer to the task function. Must not be NULL.
+ * 指向任务函数的指针。不能为`NULL`。
  * @param arg          The argument for the task function.
+ * 任务函数的参数。
  * @return int         0 on success, -1 otherwise (e.g., NULL handles, passport mismatch, or pool not in ALIVE state).
+ * 成功时返回0，否则返回-1（例如句柄为`NULL`，通行证不匹配，或线程池不在`ALIVE`状态）。
  * @note User is responsible for managing lifetime of data pointed to by `arg.ptr`.
+ * 用户负责管理`arg.ptr`指向的数据的生命周期。
  */
 int thpool_add_work_debug_conc(threadpool, thpool_debug_conc_passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
 
@@ -589,11 +808,18 @@ int thpool_add_work_debug_conc(threadpool, thpool_debug_conc_passport, void (*fu
  * This function is similar to @ref thpool_wait but requires the caller
  * to provide the associated concurrency passport. Enables **debugging and diagnosing**
  * lifecycle-related API misuse.
+ * 
+ * 使用用户提供的通行证等待所有排队任务完成以进行诊断。
+ * 此函数类似于`thpool_wait`，但要求调用者提供关联的并发通行证，以启用**调试和诊断**生命周期相关的API误用。
  *
  * @param thpool_p The thread pool to wait for. Must not be NULL.
+ * 要等待的线程池句柄。不能为`NULL`。
  * @param passport The user-provided concurrency passport. Must be bound to thpool_p and not be NULL.
  * The passport's lifetime MUST be strictly longer than the thread pool's.
- * @return int     0 on success, -1 on error (e.g., NULL handles, passport mismatch, or pool not in ALIVE state when called).
+ * 用户提供的并发通行证。必须绑定到`thpool_p`且不能为`NULL`。通行证的生命周期必须严格长于线程池的生命周期。
+ * @return int     0 on success, -1 on error (e.g., NULL handles, passport mismatch, or pool not in ALIVE state when called),
+ * or called from within a thread pool worker thread).
+ * 成功时返回0，否则返回-1（例如句柄为`NULL`，通行证不匹配，或线程池不在`ALIVE`状态，或从线程池内部调用）。
  */
 int thpool_wait_debug_conc(threadpool, thpool_debug_conc_passport);
 
@@ -603,11 +829,17 @@ int thpool_wait_debug_conc(threadpool, thpool_debug_conc_passport);
  * This function is similar to @ref thpool_reactivate but requires the caller
  * to provide the associated concurrency passport. Enables **debugging and diagnosing**
  * lifecycle-related API misuse.
+ * 
+ * 使用用户提供的通行证重新激活线程池以进行诊断。
+ * 此函数类似于`thpool_reactivate`，但要求调用者提供关联的并发通行证，以启用**调试和诊断**生命周期相关的API误用。
  *
  * @param thpool_p The thread pool to reactivate. Must not be NULL.
+ * 要重新激活的线程池。不能为`NULL`。
  * @param passport The user-provided concurrency passport. Must be bound to thpool_p and not be NULL.
  * The passport's lifetime MUST be strictly longer than the thread pool's.
+ * 用户提供的并发通行证。必须绑定到`thpool_p`且不能为`NULL`。通行证的生命周期必须严格长于线程池的生命周期。
  * @return int     0 on success, -1 on error (e.g., NULL handles, passport mismatch, or pool not in ALIVE state when called).
+ * 成功时返回0，否则返回-1（例如句柄为`NULL`，通行证不匹配，或线程池不在`ALIVE`状态）。
  */
 int thpool_reactivate_debug_conc(threadpool, thpool_debug_conc_passport);
 
@@ -617,11 +849,17 @@ int thpool_reactivate_debug_conc(threadpool, thpool_debug_conc_passport);
  * This function is similar to @ref thpool_num_threads_working but requires the caller
  * to provide the associated concurrency passport. Enables **debugging and diagnosing**
  * lifecycle-related API misuse.
+ * 
+ * 使用用户提供的通行证获取当前正在执行任务的线程数量以进行诊断。
+ * 此函数类似于`thpool_num_threads_working`，但要求调用者提供关联的并发通行证，以启用**调试和诊断**生命周期相关的API误用。
  *
  * @param thpool_p The thread pool handle. Must not be NULL.
+ * 线程池句柄。不能为`NULL`。
  * @param passport The user-provided concurrency passport. Must be bound to thpool_p and not be NULL.
  * The passport's lifetime MUST be strictly longer than the thread pool's.
+ * 用户提供的并发通行证。必须绑定到`thpool_p`且不能为`NULL`。通行证的生命周期必须严格长于线程池的生命周期。
  * @return int     The number of threads currently executing a job (>= 0), or -1 on error (e.g., NULL handles, passport mismatch, or pool not in ALIVE state when called).
+ * 返回当前正在执行任务的线程数量（>= 0），或错误时返回-1（例如句柄为`NULL`，通行证不匹配，或调用时线程池不在`ALIVE`状态）。
  */
 int thpool_num_threads_working_debug_conc(threadpool, thpool_debug_conc_passport);
 
@@ -631,11 +869,18 @@ int thpool_num_threads_working_debug_conc(threadpool, thpool_debug_conc_passport
  * This function is similar to @ref thpool_shutdown but requires the caller
  * to provide the associated concurrency passport. Enables **debugging and diagnosing**
  * lifecycle-related API misuse.
+ * 
+ * 使用用户提供的通行证关闭线程池以进行诊断。
+ * 此函数类似于`thpool_shutdown`，但要求调用者提供关联的并发通行证，以启用**调试和诊断**生命周期相关的API误用。
  *
  * @param thpool_p The thread pool handle. Must not be NULL.
+ * 线程池句柄。不能为`NULL`。
  * @param passport The user-provided concurrency passport. Must be bound to thpool_p and not be NULL.
  * The passport's lifetime MUST be strictly longer than the thread pool's.
- * @return int     0 on success, -1 on error (e.g., NULL handles, passport mismatch, or cannot initiate shutdown from the current state).
+ * 用户提供的并发通行证。必须绑定到`thpool_p`且不能为`NULL`。通行证的生命周期必须严格长于线程池的生命周期。
+ * @return int     0 on success, -1 on error (e.g., NULL handles, passport mismatch, or cannot initiate shutdown from the current state),
+ * or called from within a thread pool worker thread).
+ * 成功时返回0，错误时返回-1（例如句柄为`NULL`，通行证不匹配，或无法从当前状态shutdown，或从线程池工作线程内部调用）。
  */
 int thpool_shutdown_debug_conc(threadpool, thpool_debug_conc_passport);
 
@@ -645,11 +890,17 @@ int thpool_shutdown_debug_conc(threadpool, thpool_debug_conc_passport);
  * This function is similar to @ref thpool_destroy but requires the caller
  * to provide the associated concurrency passport. Enables **debugging and diagnosing**
  * lifecycle-related API misuse.
+ * 
+ * 使用用户提供的通行证销毁线程池并释放其资源以进行诊断。
+ * 此函数类似于`thpool_destroy`，但要求调用者提供关联的并发通行证，以启用**调试和诊断**生命周期相关的API误用。
  *
  * @param thpool_p The thread pool handle to destroy. Must not be NULL.
+ * 要销毁的线程池句柄。不能为`NULL`。
  * @param passport The user-provided concurrency passport. Must be bound to thpool_p and not be NULL.
  * The passport's lifetime MUST be strictly longer than the thread pool's.
+ * 用户提供的并发通行证。必须绑定到`thpool_p`且不能为`NULL`。通行证的生命周期必须严格长于线程池的生命周期。
  * @return int     0 on success, -1 on error (e.g., NULL handles, passport mismatch, or cannot complete destruction from the current state).
+ * 成功时返回0，错误时返回-1（例如句柄为`NULL`，通行证不匹配，或无法从当前状态完成销毁，或从线程池工作线程内部调用）。
  */
 int thpool_destroy_debug_conc(threadpool, thpool_debug_conc_passport);
 #endif
