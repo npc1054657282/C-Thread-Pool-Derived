@@ -2,8 +2,12 @@ name: CI
 on:
   push:
     branches: [ main ] # 当代码推送到 main 分支时触发
+      paths-ignore: # 忽略以下路径的文件变化
+        - '**.md' # 忽略所有 .md 文件的变化 (包括子目录)
   pull_request:
     branches: [ main ] # 当有 Pull Request 目标是 main 分支时触发
+      paths-ignore: # 忽略以下路径的文件变化
+        - '**.md' # 忽略所有 .md 文件的变化 (包括子目录)
 jobs:
   build:
     runs-on: ubuntu-latest # 在最新的 Ubuntu 环境下运行
@@ -20,5 +24,4 @@ jobs:
         xmake
     - name: Run Tests with Xmake
       run: |
-        xmake run thpool_easy_example
-        xmake run thpool_complex_example
+        xmake run -g threadpool_examples
