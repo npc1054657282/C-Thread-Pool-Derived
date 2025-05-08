@@ -39,6 +39,7 @@ void end_cb(threadpool_thread current_thrd){
     }
     free(tctx);//上下文对互斥锁只是引用，并非持有，无需在此销毁。
     thpool_thread_unset_context(current_thrd);
+    thpool_thread_unref_callback_arg(current_thrd);
 }
 
 void mutex_destructor(pthread_mutex_t * mutex){
@@ -128,6 +129,7 @@ int main(){
     thpool_wait(thpool);
     printf("Killing threadpool\n");
     thpool_shutdown(thpool);
+    printf("Destroy threadpool\n");
     thpool_destroy(thpool);
 
     return 0;
