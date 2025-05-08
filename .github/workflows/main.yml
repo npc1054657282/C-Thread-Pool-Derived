@@ -1,0 +1,24 @@
+name: CI
+on:
+  push:
+    branches: [ main ] # 当代码推送到 main 分支时触发
+  pull_request:
+    branches: [ main ] # 当有 Pull Request 目标是 main 分支时触发
+jobs:
+  build:
+    runs-on: ubuntu-latest # 在最新的 Ubuntu 环境下运行
+    steps:
+    - uses: actions/checkout@v4 # 检出你的仓库代码
+    - name: setup xmake
+      uses: xmake-io/github-action-setup-xmake@v1
+      with:
+        # The version to use. Should be a semver range or 'latest'. Or use [{repository}#]branch@{branch_name} to select a branch.
+        xmake-version: 'latest'
+    - name: Build with Xmake
+      run: |
+        xmake config
+        xmake
+    - name: Run Tests with Xmake
+      run: |
+        xmake run thpool_easy_example
+        xmake run thpool_complex_example
