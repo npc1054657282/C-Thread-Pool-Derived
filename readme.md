@@ -1,11 +1,12 @@
 <!--
 /** \mainpage   C-Thread-Pool-Refined Documentation
- *  \section    features                                    Features
- *  \section    getting-started                             Getting Started
- *  \section    examples                                    Examples
- *  \section    api-overview                                API Overview
- *  \section    structures                                  Structures
- *  \section    included-components-and-licensing           Included Components and Licensing
+ *  \section    features                                            Features
+ *  \section    getting-started                                     Getting Started
+ *  \section    examples                                            Examples
+ *  \section    api-overview                                        API Overview
+ *  \section    structures                                          Structures
+ *  \section    thread-context-vs-posix-thread-specific-data-tsd    Thread Context vs. POSIX Thread-Specific Data (TSD)
+ *  \section    included-components-and-licensing                   Included Components and Licensing
  */
 -->
 
