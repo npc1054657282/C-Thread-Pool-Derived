@@ -10,7 +10,7 @@ on:
     # `pull_request`事件不进行`paths-igonre`，确保总是触发，这是因为分支规则设置了要求检查，如果没有触发，会导致拉取请求永远无法完成检查
 jobs:
   # 检查拉取请求是否有非文档文件变化
-  pull_request_check_files_change:
+  pr_check_files_change:
     runs-on: ubuntu-latest
     # 只在Pull Request事件时运行此 Job
     if: github.event_name == 'pull_request'
@@ -48,10 +48,10 @@ jobs:
         fi
   # 构建和测试任务主体
   build:
-    needs: [pull_request_check_files_change]
-    # 对于`pull_request`事件，它依赖于`pull_request_check_files_change`Job，并且只在`pull_request_check_files_change`输出`needs_build`为`true`时运行
-    # 对于`Push`事件，它受on trigger影响，不使用`pull_request_check_files_change`
-    if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && needs.pull_request_check_files_change.outputs.needs_build == 'true')) }}
+    needs: [pr_check_files_change]
+    # 对于`pull_request`事件，它依赖于`pr_check_files_change`Job，并且只在`pr_check_files_change`输出`needs_build`为`true`时运行
+    # 对于`Push`事件，它受on trigger影响，不使用`pr_check_files_change`
+    if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && needs.pr_check_files_change.outputs.needs_build == 'true')) }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4 # 检出仓库代码
@@ -68,7 +68,7 @@ jobs:
       run: |
         xmake run -g threadpool_examples
   # 拉取请求要求进行的检查
-  pull_request_check:
+  pr_check:
     needs: [build]
     # 不论`build`是否被跳过，它都会给出结果。如果`build`被跳过，直接通过检查。
     if: ${{ always() && github.event_name == 'pull_request'}}
