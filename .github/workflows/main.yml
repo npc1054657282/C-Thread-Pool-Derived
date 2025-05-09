@@ -1,18 +1,60 @@
 name: CI
 on:
   push:
-    branches: [ main ] # 当代码推送到 main 分支时触发
+    branches: [ main ] # 当代码推送到`main`分支时触发
     paths-ignore: # 忽略以下路径的文件变化
-      - '**.md' # 忽略所有 .md 文件的变化 (包括子目录)
+      - '**.md' # 忽略所有`.md`文件的变化（包括子目录）
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [ main ] # 当有 Pull Request 目标是 main 分支时触发
-    paths-ignore: # 忽略以下路径的文件变化
-      - '**.md' # 忽略所有 .md 文件的变化 (包括子目录)
+    # `pull_request`事件不进行`paths-igonre`，确保总是触发，这是因为分支规则设置了要求检查，如果没有触发，会导致拉取请求永远无法完成检查
 jobs:
-  build:
-    runs-on: ubuntu-latest # 在最新的 Ubuntu 环境下运行
+  # 检查拉取请求是否有非文档文件变化
+  pull_request_check_files_change:
+    runs-on: ubuntu-latest
+    # 只在Pull Request事件时运行此 Job
+    if: github.event_name == 'pull_request'
+    outputs:
+      needs_build: ${{ steps.check.outputs.needs_build }} # 输出是否需要构建
     steps:
-    - uses: actions/checkout@v4 # 检出你的仓库代码
+    - name: Checkout code # 检出代码
+      uses: actions/checkout@v4
+      # Fetch depth 0 is needed to compare against the base branch
+      with:
+        fetch-depth: 0
+    - name: Check for non-documentation file changes # 检查非文档文件变化
+      id: check # 为此步骤设置ID
+      run: |
+        # 获取拉取请求的基础分支和头分支 注意：这些变量主要在`pull_request`事件中有效
+        BASE_REF=${{ github.base_ref }}
+        HEAD_SHA=${{ github.sha }}
+
+        # 比较基础分支和头分支，列出所有变化的文件
+        # 使用 'grep -v' 过滤掉 .md 文件和 docs/ 目录下的文件
+        # 使用 'wc -l' 计算剩余行数 (即非文档文件变化的数量)
+        CHANGED_FILES=$(git diff --name-only origin/$BASE_REF $HEAD_SHA | \
+                        grep -vE '(\.md$|^docs/)' | \
+                        wc -l)
+
+        echo "检测到非文档文件变化的数量: $CHANGED_FILES"
+
+        # 如果非文档文件变化数量大于 0，则需要构建
+        if [ "$CHANGED_FILES" -gt 0 ]; then
+          echo "需要执行构建和测试。"
+          echo "needs_build=true" >> $GITHUB_OUTPUT # 设置步骤输出`needs_build`为`true`
+        else
+          echo "只涉及文档文件，跳过构建和测试。"
+          echo "needs_build=false" >> $GITHUB_OUTPUT # 设置步骤输出`needs_build`为`false`
+        fi
+  # 构建和测试任务主体
+  build:
+    needs: [pull_request_check_files_change]
+    # 对于`pull_request`事件，它依赖于`pull_request_check_files_change`Job，并且只在`pull_request_check_files_change`输出`needs_build`为`true`时运行
+    # 对于`Push`事件，它受on trigger影响，不使用`pull_request_check_files_change`
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && needs.pull_request_check_files_change.outputs.needs_build == 'true')
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4 # 检出仓库代码
     - name: setup xmake
       uses: xmake-io/github-action-setup-xmake@v1
       with:
@@ -25,3 +67,31 @@ jobs:
     - name: Run Tests with Xmake
       run: |
         xmake run -g threadpool_examples
+  # 拉取请求要求进行的检查
+  pull_request_check:
+    needs: [build]
+    # 不论`build`是否被跳过，它都会给出结果。如果`build`被跳过，直接通过检查。
+    if: github.event_name == 'pull_request' && needs.build.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Evaluate Check Results # 步骤名称：评估检查结果
+      run: |
+        # 获取`build`的结论 (可能是`success`、`failure`、`skipped`、`cancelled`)
+        BUILD_CONCLUSION=${{ needs.build.result }}
+
+        echo "Build Job Conclusion: $BUILD_CONCLUSION"
+
+        # 检查`build`的结论
+        # 如果`build`被跳过 (因为只修改了文档)，此检查通过
+        if [ "$BUILD_CONCLUSION" == "skipped" ]; then
+          echo "Build job was skipped (documentation changes only). Pull Request check passes."
+          exit 0 # 成功
+        # 如果`build`运行了，检查其结果
+        elif [ "$BUILD_CONCLUSION" == "success" ]; then
+          echo "Build job completed successfully. Pull Request check passes."
+          exit 0 # 成功
+        else
+          # `build`失败、取消等 (取消情况已经在`if`条件中排除)
+          echo "Build job did not complete successfully (Conclusion: $BUILD_CONCLUSION). Pull Request check fails."
+          exit 1 # 失败
+        fi
