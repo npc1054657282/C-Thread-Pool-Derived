@@ -1,0 +1,47 @@
+name: CodeQL # 工作流名称
+
+on:
+  push:
+    branches: [ main ] # 当代码推送到`main`分支时触发CodeQL分析
+  pull_request:
+    branches: [ main ] # 当有PR目标是`main`分支时触发CodeQL分析
+  schedule:
+    # 每天凌晨 3:00 UTC 运行CodeQL分析
+    # 这提供了一个定期扫描，即使没有新的push或PR也能发现问题
+    - cron: '0 3 * * *'
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      # CodeQL需要读取仓库内容、写入安全警报和读取Actions元数据的权限
+      contents: read # For checkout, actions/upload-artifact, github/codeql-action
+      packages: read # For github/codeql-action to get CodeQL bundle
+      security-events: write # For github/codeql-action to upload security alerts
+      actions: read # For github/codeql-action to get workflow metadata
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    # 初始化CodeQL
+    # 下载`CodeQL CLI`，配置扫描环境，并准备好分析数据库
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3 # 使用CodeQL初始化Action
+      with:
+        languages: 'c-cpp'
+        # auto-detect: true
+    # 设置 Xmake
+    # CodeQL需要在构建过程中捕获代码，因此如果使用xmake，需要在构建前设置好环境
+    - name: Setup Xmake # 使用 setup-xmake Action 安装 xmake
+      uses: xmake-io/github-action-setup-xmake@v1
+    - name: Build with Xmake (for CodeQL Analysis)
+      run: |
+        xmake config
+        xmake
+    # 运行CodeQL分析
+    # 这会分析在初始化和构建步骤中创建的数据库，并查找问题
+    - name: Perform CodeQL Analysis # 步骤名称
+      uses: github/codeql-action/analyze@v3 # 使用 CodeQL 分析 Action
+      # 如果只关心特定的查询套件，可以在这里指定
+      # with:
+      #   queries: security-and-quality
