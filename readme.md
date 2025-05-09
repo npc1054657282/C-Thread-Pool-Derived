@@ -1,5 +1,5 @@
 <!--
-/** \mainpage   C-Thread-Pool-Refined Documentation
+/** \mainpage   C-Thread-Pool-Derived Documentation
  *  \section    features                                            Features
  *  \section    getting-started                                     Getting Started
  *  \section    examples                                            Examples

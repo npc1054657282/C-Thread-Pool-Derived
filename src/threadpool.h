@@ -1,12 +1,13 @@
+/* SPDX-License-Identifier: MIT */
+/* SPDX-FileCopyrightText: 2025 npc1054657282 <ly1054657282 at gmail.com> */
+/* SPDX-FileCopyrightText: 2016 Johan Hanssen Seferidis */
+
 /**
- * Copyright (c) 2025 npc1054657282 <ly1054657282 at gmail dot com>
- * Copyright (c) 2016 Johan Hanssen Seferidis
- *
- * This file is part of C-Thread-Pool-Refined, distributed under the MIT License.
- * For full terms see the included LICENSE file.
- *
  * @file threadpool.h
  * @brief A C thread pool library based on Pithikos/C-Thread-Pool.
+ * 
+ * This file is part of C-Thread-Pool-Derived, distributed under the MIT License.
+ * For full terms see the included LICENSE file.
  *
  * This library implements a thread pool in C, with modifications
  * based on personal project requirements.
