@@ -118,12 +118,12 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }} # 使用`GitHub Token`进行认证
         script: |
           // 获取PR的相关信息
-          const { owner, repo, pull_number } = context.issue;
+          const { owner, repo, number } = context.issue;
           // 调用`GitHub API`创建审阅
           await github.rest.pulls.createReview({
             owner,
             repo,
-            pull_number,
+            pull_number : number,
             event: 'APPROVE', // 设置审阅事件为`APPROVE`（批准）
             body: 'Automated review: All required checks passed.' // 审阅评论
           });
