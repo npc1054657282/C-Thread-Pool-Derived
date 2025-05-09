@@ -6,13 +6,13 @@ on:
       - '**.md' # 忽略所有`.md`文件的变化（包括子目录）
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [ main ] # 当有 Pull Request 目标是 main 分支时触发
-    # `pull_request`事件不进行`paths-igonre`，确保总是触发，这是因为分支规则设置了要求检查，如果没有触发，会导致拉取请求永远无法完成检查
+    branches: [ main ] # 当有PR目标是`main`分支时触发
+    # `pull_request`事件不进行`paths-igonre`，确保总是触发，这是因为分支规则设置了要求PR检查，如果没有触发，会导致PR永远无法完成检查
 jobs:
-  # 检查拉取请求是否有非文档文件变化
-  pull_request_check_files_change:
+  # 检查PR是否有非文档文件变化
+  pr_check_files_change:
     runs-on: ubuntu-latest
-    # 只在Pull Request事件时运行此 Job
+    # 只在PR事件时运行此任务
     if: github.event_name == 'pull_request'
     outputs:
       needs_build: ${{ steps.check.outputs.needs_build }} # 输出是否需要构建
@@ -48,10 +48,10 @@ jobs:
         fi
   # 构建和测试任务主体
   build:
-    needs: [pull_request_check_files_change]
-    # 对于`pull_request`事件，它依赖于`pull_request_check_files_change`Job，并且只在`pull_request_check_files_change`输出`needs_build`为`true`时运行
-    # 对于`Push`事件，它受on trigger影响，不使用`pull_request_check_files_change`
-    if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && needs.pull_request_check_files_change.outputs.needs_build == 'true')) }}
+    needs: [pr_check_files_change]
+    # 对于`pull_request`事件，它依赖于`pr_check_files_change`Job，并且只在`pr_check_files_change`输出`needs_build`为`true`时运行
+    # 对于`Push`事件，它受on trigger影响，不使用`pr_check_files_change`
+    if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && needs.pr_check_files_change.outputs.needs_build == 'true')) }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4 # 检出仓库代码
@@ -68,7 +68,7 @@ jobs:
       run: |
         xmake run -g threadpool_examples
   # 拉取请求要求进行的检查
-  pull_request_check:
+  pr_check:
     needs: [build]
     # 不论`build`是否被跳过，它都会给出结果。如果`build`被跳过，直接通过检查。
     if: ${{ always() && github.event_name == 'pull_request'}}
@@ -76,11 +76,8 @@ jobs:
     steps:
     - name: Evaluate Check Results # 步骤名称：评估检查结果
       run: |
-        # 获取`build`的结论 (可能是`success`、`failure`、`skipped`、`cancelled`)
         BUILD_CONCLUSION=${{ needs.build.result }}
-
         echo "Build Job Conclusion: $BUILD_CONCLUSION"
-
         # 检查`build`的结论
         # 如果`build`被跳过 (因为只修改了文档)，此检查通过
         if [ "$BUILD_CONCLUSION" == "skipped" ]; then
@@ -95,3 +92,39 @@ jobs:
           echo "Build job did not complete successfully (Conclusion: $BUILD_CONCLUSION). Pull Request check fails."
           exit 1 # 失败
         fi
+  # 自动审批PR的任务
+  pr_auto_approve:
+    # 只有当`pr_check`完成后，此任务才会开始运行。
+    needs: [pr_check]
+    runs-on: ubuntu-latest
+    # 添加条件检查：
+    # 1. 确保此任务仅在PR事件时运行
+    # 2. 确保PR不是草稿状态
+    # 3. 确保依赖的`pr_check`成功完成
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false && needs.pr_check.result == 'success'
+    permissions:
+      pull-requests: write # 授予写入 Pull Request 的权限，以便创建审阅
+      contents: read       # 授予读取仓库内容的权限，通常是默认的
+    steps:
+    # 不需要再次 checkout 代码，因为我们只进行 API 调用
+    # - name: Checkout code
+    #   uses: actions/checkout@v4
+    - name: Approve Pull Request # 步骤名称：审批PR
+      # 此步骤仅在依赖的`pr_check`成功完成时运行（由`Job`级别的`if`条件控制）
+      uses: actions/github-script@v7
+      with:
+        # `GITHUB_TOKEN`由`GitHub Actions`自动提供。
+        # 它需要`pull-requests: write`权限来创建审阅。
+        github-token: ${{ secrets.GITHUB_TOKEN }} # 使用`GitHub Token`进行认证
+        script: |
+          // 获取PR的相关信息
+          const { owner, repo, pull_number } = context.issue;
+          // 调用`GitHub API`创建审阅
+          await github.rest.pulls.createReview({
+            owner,
+            repo,
+            pull_number,
+            event: 'APPROVE', // 设置审阅事件为`APPROVE`（批准）
+            body: 'Automated review: All required checks passed.' // 审阅评论
+          });
+          console.log('机器人已批准PR。');
