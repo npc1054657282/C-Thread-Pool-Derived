@@ -51,7 +51,7 @@ jobs:
     needs: [pull_request_check_files_change]
     # 对于`pull_request`事件，它依赖于`pull_request_check_files_change`Job，并且只在`pull_request_check_files_change`输出`needs_build`为`true`时运行
     # 对于`Push`事件，它受on trigger影响，不使用`pull_request_check_files_change`
-    if: (github.event_name == 'push' && needs.pull_request_check_files_change.result != 'cancelled') || (github.event_name == 'pull_request' && needs.pull_request_check_files_change.outputs.needs_build == 'true')
+    if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'pull_request' && needs.pull_request_check_files_change.outputs.needs_build == 'true')) }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4 # 检出仓库代码
@@ -71,7 +71,7 @@ jobs:
   pull_request_check:
     needs: [build]
     # 不论`build`是否被跳过，它都会给出结果。如果`build`被跳过，直接通过检查。
-    if: github.event_name == 'pull_request' && needs.build.result != 'cancelled'
+    if: ${{ always() && github.event_name == 'pull_request'}}
     runs-on: ubuntu-latest
     steps:
     - name: Evaluate Check Results # 步骤名称：评估检查结果
