@@ -1,0 +1,12 @@
+{
+    "postCreateCommand": "bash .devcontainer/check-gpg.sh && curl -fsSL https://xmake.io/shget.text | bash && echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc",
+    "customizations": {
+        "vscode": {
+            "extensions": ["ms-vscode.cpptools"],
+            "settings": {
+                "C_Cpp.default.compilerPath": "/usr/bin/gcc",
+                "C_Cpp.default.intelliSenseMode": "linux-gcc-x64"
+            }
+        }
+    }
+}
