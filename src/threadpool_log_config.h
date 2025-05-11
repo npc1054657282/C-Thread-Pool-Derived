@@ -5,7 +5,11 @@
 
 #include "utils/log.h"
 
-#if __STDC_VERSION__ >= 202311L
+#define PP_THIRD_ARG(a, b, c, ...) c
+#define VA_OPT_SUPPORTED_I(...) PP_THIRD_ARG(__VA_OPT__(,), true, false, )
+#define VA_OPT_SUPPORTED VA_OPT_SUPPORTED_I(x)
+
+#if VA_OPT_SUPPORTED
 #define thpool_log_fatal(fmt, ...)  log_fatal(fmt __VA_OPT__(,) __VA_ARGS__)
 #define thpool_log_error(fmt, ...)  log_error(fmt __VA_OPT__(,) __VA_ARGS__)
 #define thpool_log_warn(fmt, ...)   log_warn(fmt __VA_OPT__(,) __VA_ARGS__)
