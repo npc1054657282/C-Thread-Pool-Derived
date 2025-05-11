@@ -1,4 +1,4 @@
 {
     "postCreateCommand": "curl -fsSL https://xmake.io/shget.text | bash && echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc",
-    "postStartCommand": "bash .devcontainer/check-gpg.sh"
+    "postAttachCommand": "bash .devcontainer/check-gpg.sh"
 }
