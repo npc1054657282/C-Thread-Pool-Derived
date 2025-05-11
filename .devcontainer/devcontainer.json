@@ -2,7 +2,7 @@
     "postCreateCommand": "bash .devcontainer/check-gpg.sh && curl -fsSL https://xmake.io/shget.text | bash && echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc",
     "customizations": {
         "vscode": {
-            "extensions": ["ms-vscode.cpptools","tboox.xmake-vscode"]
+            "extensions": ["ms-vscode.cpptools"]
         }
     }
 }
