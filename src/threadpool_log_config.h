@@ -22,11 +22,11 @@
 #define thpool_log_info(fmt, ...)   log_info(fmt, ##__VA_ARGS__)
 #define thpool_log_debug(fmt, ...)  log_debug(fmt, ##__VA_ARGS__)
 #else
-#define thpool_log_fatal log_fatal
-#define thpool_log_error log_error
-#define thpool_log_warn log_warn
-#define thpool_log_info log_info
-#define thpool_log_debug log_debug
+#define thpool_log_fatal    log_fatal
+#define thpool_log_error    log_error
+#define thpool_log_warn     log_warn
+#define thpool_log_info     log_info
+#define thpool_log_debug    log_debug
 #endif
 
 #endif
