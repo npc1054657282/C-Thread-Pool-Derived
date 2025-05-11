@@ -11,4 +11,5 @@ To ensure your PR isn’t blocked, please:
   3. **Stop & Restart** your Codespace so the new setting takes effect.
 
 EOF
+else echo -e "\n✅ Git Commit GPG Sign is enabled.\n"
 fi
