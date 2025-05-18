@@ -313,24 +313,24 @@ static void         thread_destroy(struct thread* thread_p);
 
 // 把jobqueue的push和pull均改为无锁保护版本，jobqueue操作仅仅关心自己作为一个结构体该做的事，不去关心与信号同步有关的事。
 // Job queue internal helper functions (unsafe - require external synchronization)
-static int          jobqueue_init(jobqueue* jobqueue_p, int max_len);
-static void         jobqueue_clear_unsafe(jobqueue* jobqueue_p);
-static void         jobqueue_push_unsafe(jobqueue* jobqueue_p, struct job* newjob_p);
-static struct job  *jobqueue_pull_unsafe(jobqueue* jobqueue_p);
-static void         jobqueue_destroy_unsafe(jobqueue* jobqueue_p);
+static int          jobqueue_init(jobqueue *jobqueue_p, int max_len);
+static void         jobqueue_clear_unsafe(jobqueue *jobqueue_p);
+static void         jobqueue_push_unsafe(jobqueue *jobqueue_p, struct job* newjob_p);
+static struct job  *jobqueue_pull_unsafe(jobqueue *jobqueue_p);
+static void         jobqueue_destroy_unsafe(jobqueue *jobqueue_p);
 
 // 新增的非api函数，相当于原作者的jobqueue_push和jobqueue_pull，提供了更复杂的信号同步功能。
 // Thread pool internal job handling functions (with synchronization)
-static int          thpool_put_job(thpool* thpool_p, struct job* newjob_p);
-static struct job  *thpool_get_job(thpool* thpool_p);
+static int          thpool_put_job(thpool *thpool_p, struct job *newjob_p);
+static struct job  *thpool_get_job(thpool *thpool_p);
 // 由部分API使用，判定调用的线程是否属于线程池内。以禁止一些不应由属于线程池的线程进行的操作。
-static inline bool  thpool_is_current_thread_owner(thpool* thpool_p);
+static inline bool  thpool_is_current_thread_owner(thpool *thpool_p);
 // 原有api改名为inner。inner的api不涉及conc_state_block
 // Inner API functions (do not involve passport checks or use counting)
-static int          thpool_wait_inner(thpool* thpool_p);
-static int          thpool_add_work_inner(thpool* thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p);
+static int          thpool_wait_inner(thpool *thpool_p);
+static int          thpool_add_work_inner(thpool *thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p);
 static int          thpool_reactivate_inner(thpool* thpool_p);
-static int          thpool_num_threads_working_inner(thpool* thpool_p);
+static int          thpool_num_threads_working_inner(thpool *thpool_p);
 // 在inner api的基础上增加了涉及conc_state_block的操作。
 // 其他api直接在inner api基础上用宏扩充。shutdown和destroy比较特殊，因此从一开始就设计成safe inner api。
 /**
@@ -1133,7 +1133,7 @@ static int thpool_add_work_inner(thpool *thpool_p, void (*function_p)(void *, th
 }
 
 /* Wait until all jobs have finished */
-static int thpool_wait_inner(thpool* thpool_p) {
+static int thpool_wait_inner(thpool *thpool_p) {
     /* 禁止线程池内的线程本身执行`thpool_wait`。    */
     if(thpool_is_current_thread_owner(thpool_p)) {
         errno = EINVAL;
@@ -1167,7 +1167,7 @@ static int thpool_wait_inner(thpool* thpool_p) {
 }
 
 /* 解除thpool_put_job的阻塞 */
-static int thpool_reactivate_inner(thpool* thpool_p) {
+static int thpool_reactivate_inner(thpool *thpool_p) {
     pthread_mutex_lock(&thpool_p->jobqueue_rwmutex);
     atomic_store(&thpool_p->threads_active, true);
     thpool_log_debug("thpool_reactivate_inner: threads_active successfully set to %d", atomic_load(&thpool_p->threads_active));
