@@ -13,12 +13,12 @@ typedef struct task_thread_ctx{
     pthread_mutex_t *log_mutex_ref;
 }task_thread_ctx;
 
-void start_cb(threadpool_arg arg, threadpool_thread current_thrd){
+void start_cb(void *arg, threadpool_thread current_thrd){
 
-    pthread_mutex_t *log_mutex = (pthread_mutex_t *)arg.ptr;
-    task_thread_ctx *tctx = (task_thread_ctx *)thpool_thread_get_context(current_thrd);
+    pthread_mutex_t *log_mutex = arg;
+    task_thread_ctx *tctx = thpool_thread_get_context(current_thrd);
     if(!tctx) {
-        tctx = (task_thread_ctx *)malloc(sizeof(task_thread_ctx));
+        tctx = malloc(sizeof(task_thread_ctx));
         if (tctx == NULL) {
             // 分配失败处理，例如打印错误日志
             log_error("start_cb: Failed to allocate memory for task_thread_ctx");
@@ -26,7 +26,7 @@ void start_cb(threadpool_arg arg, threadpool_thread current_thrd){
             return;
         }
         memset(tctx, 0, sizeof(task_thread_ctx));
-        thpool_thread_set_context(current_thrd, (void *)tctx);
+        thpool_thread_set_context(current_thrd, tctx);
     }
     time(&tctx->start);
     tctx->log_mutex_ref = log_mutex;
@@ -42,7 +42,8 @@ void end_cb(threadpool_thread current_thrd){
     thpool_thread_unref_callback_arg(current_thrd);
 }
 
-void mutex_destructor(pthread_mutex_t * mutex){
+void mutex_destructor_wrap(void *arg){
+    pthread_mutex_t * mutex = arg;
     pthread_mutex_destroy(mutex);
     free(mutex);
 }
@@ -52,8 +53,8 @@ typedef struct{
     time_t add_work_time;
 } task_args;
 
-void task(threadpool_arg arg, threadpool_thread current_thrd){
-    task_args *args = (task_args*)arg.ptr;
+void task(void *arg, threadpool_thread current_thrd){
+    task_args *args = arg;
     task_thread_ctx *tctx = (task_thread_ctx *)thpool_thread_get_context(current_thrd);
     if(!tctx) {
         return;
@@ -76,7 +77,7 @@ void task(threadpool_arg arg, threadpool_thread current_thrd){
 
 int main(){
     /* 为所有printf创建互斥锁，提供给线程开始的回调，以保存到各线程的上下文。 */
-    pthread_mutex_t *log_mutex = (pthread_mutex_t *)malloc(sizeof(pthread_mutex_t));
+    pthread_mutex_t *log_mutex = malloc(sizeof(pthread_mutex_t));
     pthread_mutex_init(log_mutex, NULL);
     /* 未被指定初始化的参数会自动初始化为0。    */
     threadpool_config conf = {
@@ -84,8 +85,8 @@ int main(){
         .work_num_max = 8,
         .thread_name_prefix = "cplx",
         .thread_start_cb = start_cb,
-        .callback_arg = {.ptr=(void *)log_mutex},
-        .callback_arg_destructor = (void(*)(void *))mutex_destructor,
+        .callback_arg = log_mutex,
+        .callback_arg_destructor = mutex_destructor_wrap,
         .thread_end_cb = end_cb,
     };
     printf("Making threadpool with 4 threads\n");
@@ -99,9 +100,9 @@ int main(){
         pthread_mutex_lock(log_mutex);
         printf("start to add job %d at %s\n", i, ctime(&now));
         pthread_mutex_unlock(log_mutex);
-        threadpool_arg arg = {.ptr = malloc(sizeof(task_args))};
-        ((task_args*)arg.ptr)->add_work_time = now;
-        ((task_args*)arg.ptr)->job_id = i;
+        void *arg = (task_args *)malloc(sizeof(task_args));
+        ((task_args*)arg)->add_work_time = now;
+        ((task_args*)arg)->job_id = i;
         thpool_add_work(thpool, task, arg);
         time(&now);
         pthread_mutex_lock(log_mutex);
@@ -117,9 +118,9 @@ int main(){
         pthread_mutex_lock(log_mutex);
         printf("start to add job %d at %s\n", i, ctime(&now));
         pthread_mutex_unlock(log_mutex);
-        threadpool_arg arg = {.ptr = malloc(sizeof(task_args))};
-        ((task_args*)arg.ptr)->add_work_time = now;
-        ((task_args*)arg.ptr)->job_id = i;
+        void *arg = (task_args *)malloc(sizeof(task_args));
+        ((task_args*)arg)->add_work_time = now;
+        ((task_args*)arg)->job_id = i;
         thpool_add_work(thpool, task, arg);
         time(&now);
         pthread_mutex_lock(log_mutex);

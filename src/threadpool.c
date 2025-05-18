@@ -158,11 +158,11 @@ typedef struct conc_state_block_{
 
 /* Job */
 typedef struct job{
-    struct job*  prev;                      /* pointer to previous job      */
+    struct job* prev;                               /* pointer to previous job      */
     /**
      * @brief Task function pointer.
      *
-     * The task function signature includes an argument (threadpool_arg) and a handle
+     * The task function signature includes an argument and a handle
      * to current thread. The task function can get access to thread-specific data
      * and thread-metadata with current thread handle.
      * 
@@ -172,8 +172,8 @@ typedef struct job{
      * 用户自己也可以使用POSIX提供的pthread_getspecific来实现线程上下文功能。
      * 但是，本方案基于回调的实现，析构过程与时机完全由用户掌握，更透明，更加利于调试。
      */
-    void   (*function)(threadpool_arg arg, threadpool_thread);   /* function pointer    */
-    threadpool_arg  arg;                        /* function's argument          */
+    void (*function)(void *arg, threadpool_thread); /* function pointer    */
+    void *arg;                                      /* function's argument          */
 } job;
 
 /* 将锁结构移出jobqueue，jobqueue结构体仅仅关心自己内部的任务，不关心与外部的同步。 */
@@ -277,9 +277,9 @@ typedef struct thpool_{
      * 加上一个末尾必须的"\0"，前缀命名提供7字节。
      */
     char    thread_name_prefix[7];
-    void    (*thread_start_cb)(threadpool_arg , threadpool_thread current_thrd);
+    void    (*thread_start_cb)(void *, threadpool_thread current_thrd);
     void    (*thread_end_cb)(threadpool_thread current_thrd);
-    threadpool_arg  callback_arg;
+    void    *callback_arg;
     void    (*callback_arg_destructor)(void *);
     atomic_int  callback_arg_refcount;  /* 如果用户提供了回调参数的析构函数，则进行引用计数。   */
     /**
@@ -307,7 +307,7 @@ typedef struct thpool_{
 // Helper function to initialize a single thread
 static int      thread_init(thpool_* thpool_p, struct thread_** thread_pout, int id);
 // The main function executed by each worker thread
-static void*    thread_do(struct thread_* thread_p);
+static void*    thread_do(void *thread_p_arg);
 // Helper function to free thread resources
 static void     thread_destroy(struct thread_* thread_p);
 
@@ -328,7 +328,7 @@ static inline bool  thpool_is_current_thread_owner(thpool_* thpool_p);
 // 原有api改名为inner。inner的api不涉及conc_state_block
 // Inner API functions (do not involve passport checks or use counting)
 static int      thpool_wait_inner(thpool_* thpool_p);
-static int      thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
+static int      thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p);
 static int      thpool_reactivate_inner(thpool_* thpool_p);
 static int      thpool_num_threads_working_inner(thpool_* thpool_p);
 // 在inner api的基础上增加了涉及conc_state_block的操作。
@@ -343,7 +343,7 @@ static int      thpool_num_threads_working_inner(thpool_* thpool_p);
 static int      thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 static int      thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 static inline int   thpool_wait_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
-static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
+static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(void *, threadpool_thread), void *arg_p);
 static inline int   thpool_reactivate_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 static inline int   thpool_num_threads_working_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
 
@@ -362,7 +362,7 @@ conc_state_block_* thpool_debug_conc_passport_init();
  * @return 0 on success, -1 otherwise.
  */
 static int thread_init (thpool_* thpool_p, struct thread_** thread_pout, int id){
-    *thread_pout = (struct thread_*)malloc(sizeof(struct thread_));
+    *thread_pout = malloc(sizeof(struct thread_));
     if (unlikely(*thread_pout == NULL)){
         thpool_log_error("thread_init(): Could not allocate memory for thread");
         if(thpool_p->callback_arg_destructor != NULL){
@@ -390,7 +390,7 @@ static int thread_init (thpool_* thpool_p, struct thread_** thread_pout, int id)
      */
     (*thread_pout)->thread_ctx_slot = NULL;
 
-    int err = pthread_create(&(*thread_pout)->pthread, NULL, (void * (*)(void *)) thread_do, (*thread_pout));
+    int err = pthread_create(&(*thread_pout)->pthread, NULL, thread_do, (*thread_pout));
     if(unlikely(err != 0)){
         thpool_log_error("thread %d:pthread_create_failed, err=%d",id, err);
         errno = err;
@@ -421,12 +421,13 @@ unref_callback_arg:
  * What each thread is doing
  *
  * In principle this is an endless loop. The only time this loop gets interrupted is once
- * thpool_destroy() is invoked or the program exits.
+ * thpool_shutdown() is invoked or the program exits.
  *
- * @param  thread_p     thread that will run this function
+ * @param  thread_p_arg thread that will run this function
  * @return nothing
  */
-static void* thread_do(struct thread_* thread_p){
+static void* thread_do(void* thread_p_arg){
+    struct thread_ *thread_p = thread_p_arg;
 
     /* Set thread name for profiling and debugging */
     /* 原作者在此处构造线程名，改为在init构造，仅需使用thread_p->thread_name的构造成品。 */
@@ -547,7 +548,7 @@ void thpool_thread_unref_callback_arg(threadpool_thread current_thrd){
     if(current_thrd->callback_arg_ref_holding && likely(current_thrd->thpool_p->callback_arg_destructor != NULL)){
         current_thrd->callback_arg_ref_holding = false;
         if(atomic_fetch_sub_explicit(&current_thrd->thpool_p->callback_arg_refcount, 1, memory_order_acq_rel) == 1){
-            current_thrd->thpool_p->callback_arg_destructor(current_thrd->thpool_p->callback_arg.ptr);
+            current_thrd->thpool_p->callback_arg_destructor(current_thrd->thpool_p->callback_arg);
             thpool_log_debug("callback_arg destructed.");
         }
     }
@@ -658,7 +659,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
 
     /* Make new thread pool */
     thpool_* thpool_p;
-    thpool_p = (struct thpool_*)malloc(sizeof(struct thpool_));
+    thpool_p = malloc(sizeof(struct thpool_));
     if (unlikely(thpool_p == NULL)){
         thpool_log_error("thpool_init(): Could not allocate memory for thread pool");
         return NULL;
@@ -770,7 +771,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
     }
 
     /* Make threads in pool */
-    thpool_p->threads = (struct thread_**)malloc(num_threads * sizeof(struct thread_ *));
+    thpool_p->threads = malloc(num_threads * sizeof(struct thread_ *));
     if (unlikely(thpool_p->threads == NULL)){
         thpool_log_error("thpool_init(): Could not allocate memory for threads");
         goto cleanup_TSD_key;
@@ -810,7 +811,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
      */
     if(thpool_p->callback_arg_destructor != NULL){
         if(atomic_fetch_sub_explicit(&thpool_p->callback_arg_refcount, 1, memory_order_acq_rel) == 1){
-            thpool_p->callback_arg_destructor(thpool_p->callback_arg.ptr);
+            thpool_p->callback_arg_destructor(thpool_p->callback_arg);
             thpool_log_debug("callback_arg destructed by thpool_init.");
         }
     }
@@ -1112,10 +1113,10 @@ static inline bool  thpool_is_current_thread_owner(thpool_* thpool_p){
 }
 
 /* Add work to the thread pool */
-static int thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
+static int thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p){
     job* newjob;
 
-    newjob=(struct job*)malloc(sizeof(struct job));
+    newjob=malloc(sizeof(struct job));
     if (unlikely(newjob == NULL)){
         thpool_log_error("thpool_add_work(): Could not allocate memory for new job");
         return -1;
@@ -1201,7 +1202,7 @@ DEFINE_THPOOL_EASY_API_SAFE_INNER(wait)
 DEFINE_THPOOL_EASY_API_SAFE_INNER(reactivate)
 DEFINE_THPOOL_EASY_API_SAFE_INNER(num_threads_working)
 
-static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
+static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(void *, threadpool_thread), void *arg_p){
     int ret;
     atomic_fetch_add(&passport->num_api_use, 1);
     enum thpool_state state = atomic_load(&passport->state);
@@ -1235,7 +1236,7 @@ DEFINE_THPOOL_EASY_API(destroy)
 DEFINE_THPOOL_EASY_API(num_threads_working)
 
 
-int thpool_add_work(thpool_* thpool_p, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
+int thpool_add_work(thpool_* thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p){
     if(unlikely(thpool_p == NULL)){
         errno = EINVAL;
         return -1;
@@ -1246,7 +1247,7 @@ int thpool_add_work(thpool_* thpool_p, void (*function_p)(threadpool_arg, thread
 /* ===================== DEBUG CONC PASSPORT ======================== */
 
 conc_state_block_* thpool_debug_conc_passport_init(){
-    conc_state_block_ *passport = (conc_state_block_*)malloc(sizeof(conc_state_block_));
+    conc_state_block_ *passport = malloc(sizeof(conc_state_block_));
     if (unlikely(passport == NULL)){
         thpool_log_error("Could not allocate memory for debug concurrency passport");
         return NULL;
@@ -1301,7 +1302,7 @@ DEFINE_THPOOL_EASY_DEBUG_CONC_API(shutdown)
 DEFINE_THPOOL_EASY_DEBUG_CONC_API(destroy)
 DEFINE_THPOOL_EASY_DEBUG_CONC_API(num_threads_working)
 
-int thpool_add_work_debug_conc(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p){
+int thpool_add_work_debug_conc(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(void *, threadpool_thread), void *arg_p){
     if(unlikely(thpool_p == NULL) || unlikely(passport == NULL)){
         errno = EINVAL;
         return -1;

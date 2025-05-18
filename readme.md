@@ -28,7 +28,6 @@ During the modification process, several areas were refined or reimplemented:
 * **Thread Context and Callbacks:** Added support for thread-specific context (`thread_ctx_slot`) and callbacks executed when a thread starts (`thread_start_cb`) or finishes (`thread_end_cb`). This enables sharing resources or maintaining state across tasks executed by the same thread.
 * **Enhanced configuration options, including control over the maximum job queue size:** This allows preventing excessive memory usage by the queue and provides waiting/notification mechanisms when the queue is full.
 * **Semaphore Implementation:** The original project's custom binary semaphore implementation, which presented some unexpected behaviors and potential performance limitations in our testing, was replaced entirely. This version utilizes standard POSIX mutexes and condition variables for synchronization, aiming for more predictable and robust behavior.
-* **Task Argument Handling:** To provide a more explicit and potentially safer way to pass arguments to task functions, the single `void*` argument was replaced with a `threadpool_arg` union. This allows users to clearly indicate whether they are passing a small value (`val`) or a pointer (`ptr`).
 * **Lifecycle Control:** The thread pool shutdown and resource destruction phases were explicitly separated (`thpool_shutdown` and `thpool_destroy`) to offer finer control over the pool's lifecycle.
 
 We hope these modifications make the library more flexible and suitable for a wider range of applications, while building upon the strong foundation laid by Pithikos's original work.
@@ -45,10 +44,9 @@ This library includes enhancements and modifications compared to the base Pithik
 * Enhanced configuration options via the threadpool_config structure, including:
     * Specifying the number of worker threads (`num_threads`), which **must be a positive integer**.
     * Controlling the maximum job queue size (`work_num_max`). This helps prevent excessive memory usage and provides waiting/notification mechanisms when the queue is full.
-    * Providing a shared argument (`callback_arg`) to thread start callbacks and an optional destructor (`callback_arg_destructor`) for managing its lifetime via reference counting. **In the absence of manual intervention (`thpool_thread_unref_callback_arg`), the lifetime of the data pointed to by `callback_arg.ptr` (if a destructor is provided) is tied to the lifetime of the thread pool itself.**
+    * Providing a shared argument (`callback_arg`) to thread start callbacks and an optional destructor (`callback_arg_destructor`) for managing its lifetime via reference counting. **In the absence of manual intervention (`thpool_thread_unref_callback_arg`), the lifetime of the data pointed to by `callback_arg` (if a destructor is provided) is tied to the lifetime of the thread pool itself.**
 * Integration with a logging functionality (configured via `threadpool_log_config.h`, with an optional default based on `rxi/log.c`).
 * Introduction of a debug concurrency passport and associated API variants to help diagnose thread pool lifecycle-related concurrency issues (like potential Use-After-Free). These optional debug APIs are enabled by defining the macro `THPOOL_ENABLE_DEBUG_CONC_API` before including `threadpool.h`. Consult the comments within the `threadpool.h` header file for detailed usage and API reference of the debug concurrency features.
-* Using the `threadpool_arg` Union for task and callback parameters, providing a flexible and explicit way to pass either values (`val`) or pointers (`ptr`).
 * Explicit separation of thread pool shutdown (`thpool_shutdown`) and resource destruction (`thpool_destroy`), offering finer control over the pool's lifecycle.
 
 **Removed Features:**
@@ -64,7 +62,6 @@ This library includes enhancements and modifications compared to the base Pithik
 * 增强的配置选项，包括控制最大任务队列大小。这有助于防止队列过度占用内存，并在队列满时提供等待/通知机制。
 * 集成了日志功能（通过`threadpool_log_config.h`进行配置，并提供基于`rxi/log.c`的可选默认实现）。
 * 引入了调试用并发通行证及其相关的API变种，用于帮助诊断线程池生命周期相关的并发问题（例如UAF）。这些可选的调试API通过在包含`threadpool.h`之前定义宏 `THPOOL_ENABLE_DEBUG_CONC_API`来启用。有关调试用并发特性的详细用法和API参考，请查阅`threadpool.h`头文件中的注释。
-* 使用`threadpool_arg` Union处理任务参数，方式灵活，可以清晰地传递值或指针。
 * 将线程池的关闭 (`thpool_shutdown`) 与资源销毁 (`thpool_destroy`) 分离，提供了更精细的控制。
 
 **移除特性：**
@@ -181,12 +178,12 @@ Once the source files are included and logging is handled according to Option 1 
 #include "threadpool.h"
 #include "threadpool_log_config.h" // Include this to use thpool_log_* in this file
 
-// Define a task function matching the signature void (*function_p)(threadpool_arg arg, threadpool_thread current_thrd)
-void my_task(threadpool_arg arg, threadpool_thread current_thrd) {
+// Define a task function matching the signature void (*function_p)(void *arg, threadpool_thread current_thrd)
+void my_task(void *arg, threadpool_thread current_thrd) {
     // Access thread ID and name using the handle
     int thread_id = thpool_thread_get_id(current_thrd);
     const char* thread_name = thpool_thread_get_name(current_thrd);
-    thpool_log_debug("Task executed by thread %d (%s), arg value: %lld", thread_id, thread_name, arg.val);
+    thpool_log_debug("Task executed by thread %d (%s), arg value: %ld", thread_id, thread_name, *(intptr_t)arg);
 
     // Example: Get/Set thread context
     void* ctx = thpool_thread_get_context(current_thrd);
@@ -198,10 +195,10 @@ void my_task(threadpool_arg arg, threadpool_thread current_thrd) {
 }
 
 // Optional: Define thread start callback
-void my_thread_start_callback(threadpool_arg arg, threadpool_thread current_thrd) {
+void my_thread_start_callback(void *arg, threadpool_thread current_thrd) {
     int thread_id = thpool_thread_get_id(current_thrd);
     const char* thread_name = thpool_thread_get_name(current_thrd);
-    thpool_log_info("Thread %d (%s) started. Callback arg pointer: %p", thread_id, thread_name, arg.ptr);
+    thpool_log_info("Thread %d (%s) started. Callback arg pointer: %p", thread_id, thread_name, arg);
     // Example: Set initial thread context
     // thpool_thread_set_context(current_thrd, initialized_thread_ctx);
 
@@ -228,7 +225,7 @@ int main() {
         .work_num_max = 10,
         //.thread_start_cb = my_thread_start_callback, // Optional: set callbacks
         //.thread_end_cb = my_thread_end_callback,
-        // .callback_arg = { .ptr = my_callback_arg_creator_function() }, // Optional: argument passed to callbacks
+        // .callback_arg = my_callback_arg_creator_function(), // Optional: argument passed to callbacks
         // .callback_arg_destructor = my_callback_arg_destructor_function, // Optional: destructor for callback_arg
         // ... other configurations ...
     };
@@ -240,12 +237,12 @@ int main() {
     }
 
     // Add work
-    threadpool_arg task_arg = {.val = 123};
+    void *task_arg = (void *)(intptr_t)123;
     thpool_log_info("Adding first task");
     thpool_add_work(pool, my_task, task_arg);
 
     // Add more work in a loop, etc.
-    // threadpool_arg another_task_arg = { .ptr = some_heap_data };
+    // void *another_task_arg = some_heap_data;
     // thpool_add_work(pool, another_task, another_task_arg); // Remember to free some_heap_data in another_task!
 
     thpool_wait(pool); // Wait for all tasks to finish
@@ -271,7 +268,6 @@ These examples demonstrate:
 * Basic thread pool initialization and task submission.
 * Using thread start and end callbacks.
 * Passing and utilizing thread-specific context data.
-* Handling task arguments with the `threadpool_arg` union.
 * Demonstrating thread pool shutdown and destruction.
 * More complex scenarios involving waiting for tasks or managing queue full conditions.
 * Usage of the `threadpool_thread` handle within task and callback functions.
@@ -286,7 +282,6 @@ Building and running these examples can provide practical insights into how to b
 * 线程池的基础初始化和任务提交。
 * 使用线程启动和结束回调。
 * 传递和利用线程特定的上下文数据。
-* 使用`threadpool_arg` Union处理任务参数。
 * 演示线程池的关闭和销毁流程。
 * 涉及等待任务或处理队列满条件等更复杂的场景。
 * 在任务和回调函数中使用`threadpool_thread`句柄。
@@ -329,7 +324,7 @@ Replace `thpool_easy_example` with the name of the example program you wish to r
 Here are some of the key functions provided by the library:
 
 * **`threadpool thpool_init(threadpool_config *conf)`**: Initializes a thread pool with the specified configuration. Returns a handle to the created thread pool on success, or `NULL` on failure. `num_threads` in `conf` must be a positive integer.<br>初始化一个线程池，使用指定的配置。成功时返回创建的线程池句柄，失败时返回`NULL`。`conf`中的`num_threads`必须是正整数。
-* **`int thpool_add_work(threadpool pool, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p)`**: Adds work (a task function and its argument) to the thread pool's job queue. The task function receives the task argument and a threadpool_thread handle. Returns 0 on success, -1 otherwise.<br>将任务（一个任务函数及其参数）添加到线程池的任务队列。任务函数接收任务参数和一个`threadpool_thread`句柄。成功时返回0，否则返回-1。
+* **`int thpool_add_work(threadpool pool, void (*function_p)(void *, threadpool_thread), void *arg_p)`**: Adds work (a task function and its argument) to the thread pool's job queue. The task function receives the task argument and a threadpool_thread handle. Returns 0 on success, -1 otherwise.<br>将任务（一个任务函数及其参数）添加到线程池的任务队列。任务函数接收任务参数和一个`threadpool_thread`句柄。成功时返回0，否则返回-1。
 * **`int thpool_wait(threadpool)`**: Blocks the calling thread until all queued jobs and currently executing jobs have finished. Returns 0 on success, -1 on error.<br>阻塞调用线程，直到所有排队任务和当前正在执行的任务完成。成功时返回0，错误时返回-1。
 * **`int thpool_reactivate(threadpool)`**: Resumes thread pool activity after being paused by `thpool_wait`. Returns 0 on success, -1 on error.<br>恢复被`thpool_wait`暂停的线程池活动。成功时返回0，错误时返回-1。
 * **`int thpool_num_threads_working(threadpool)`**: Gets the current number of threads actively working on a job. Returns the number of working threads (>= 0) on success, or -1 on error.<br>获取当前正在执行任务的线程数量。成功时返回工作线程数量（>= 0），错误时返回-1。
@@ -347,7 +342,6 @@ Here are some of the key functions provided by the library:
 
 * **`threadpool`**: An opaque handle for the thread pool. Users should not access its internal members directly.<br>线程池的不透明句柄。用户不应直接访问其内部成员。
 * **`threadpool_thread`**: An opaque handle for a worker thread within the thread pool. Passed to task functions and thread lifecycle callbacks.<br>线程池中工作线程的不透明句柄。传递给任务函数和线程生命周期回调。
-* **`threadpool_arg`**: Flexible union to carry arguments for task and callback functions. Can hold either a small value (`val`) or a pointer (`ptr`).<br>用于携带任务和回调函数参数的灵活联合体。可以存储小型值（`val`）或指针（`ptr`）。
 * **`threadpool_config`**: Structure used to configure the thread pool during initialization, including `num_threads`, `work_num_max`, `thread_start_cb`, `thread_end_cb`, `callback_arg`, `callback_arg_destructor`, and optionally `passport`.<br>用于在初始化期间配置线程池的结构体，包括`num_threads`、`work_num_max`、`thread_start_cb`、`thread_end_cb`、`callback_arg`、`callback_arg_destructor`，以及可选的`passport`。
 * **`thpool_debug_conc_passport`**: An opaque handle for the debug concurrency passport (used with `THPOOL_ENABLE_DEBUG_CONC_API`).<br>调试用并发通行证的不透明句柄（与`THPOOL_ENABLE_DEBUG_CONC_API`一起使用）。
 

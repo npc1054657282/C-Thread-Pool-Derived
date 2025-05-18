@@ -50,28 +50,6 @@ typedef struct thpool_* threadpool;
  */
 typedef struct thread_* threadpool_thread;
 
-/**
- * @brief Flexible argument carrier for task and callback functions.
- *
- * This union allows passing either a small value (up to the size of long long)
- * or a pointer (void*) as a single parameter.
- * 
- * 任务和回调函数的灵活参数载体。
- * 这个联合体允许将一个小型值（最大为`long long`的大小）或一个指针（void*）
- * 作为单个参数传递给任务函数和线程启动回调。
- *
- * @note When passing a value that fits within 'val', use the .val member.
- * When passing a pointer to data, use the .ptr member.
- * See @ref thpool_add_work for detailed usage examples.
- * 
- * 传递适合 'val' 的值时，使用`.val`成员。传递数据指针时，使用`.ptr`成员。
- * 参见`thpool_add_work`获取详细使用示例。
- */
-typedef union threadpool_arg{
-    long long val;
-    void* ptr;
-} threadpool_arg;
-
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
 /**
  * @brief An opaque handle for the debug concurrency passport.
@@ -172,7 +150,7 @@ typedef struct threadpool_config {
      * Users can get access to thread-specific data and thread-metadata with current thread handle.
      * 用户可以使用当前线程句柄访问线程特定数据和线程元数据。
      */
-    void    (*thread_start_cb)(threadpool_arg, threadpool_thread);
+    void    (*thread_start_cb)(void *, threadpool_thread);
     /**
      * @brief Callback function executed when a thread is about to exit.
      *
@@ -197,48 +175,44 @@ typedef struct threadpool_config {
      * 如果用户将它存储在线程上下文中，`thread_end_cb`和任务函数也可以访问它。
      * 它应包含所有线程共同需求的配置或共享数据。
      *
-     * @note If passing a pointer via the `ptr` member, the lifetime of the data
-     * pointed to is managed by a reference count if a `callback_arg_destructor`
-     * is provided. Each worker thread and the thread pool initialization
-     * initially hold a reference. References are released when the thread metadata
-     * is destroyed (during the `thpool_destroy` process) or when
+     * @note If a `callback_arg_destructor` is provided, the lifetime of the data
+     * pointed to is managed by a reference count . Each worker thread and the thread pool
+     * initialization initially hold a reference. References are released when the
+     * thread metadata is destroyed (during the `thpool_destroy` process) or when
      * `thpool_thread_unref_callback_arg` is called from within a thread callback.
      * The destructor is called when the last reference is released. If no destructor
      * is provided, the user is solely responsible for managing the lifetime of
-     * the pointed-to data. If passing a simple value via the `val` member,
-     * there are no lifetime concerns for the value itself.
+     * the pointed-to data.
      * 
-     * 如果通过`ptr`成员传递指针，并且提供了`callback_arg_destructor`，
-     * 则指向的数据的生命周期由引用计数管理。每个工作线程和线程池初始化
-     * 最初都持有一个引用。当线程元数据被销毁（`thpool_destroy`过程中），
-     * 或线程回调内部调用`thpool_thread_unref_callback_arg`时，引用会被释放。
-     * 当最后一个引用被释放时，会调用析构函数。
+     * 如果提供了`callback_arg_destructor`，则指向的数据的生命周期由引用计数管理。
+     * 每个工作线程和线程池初始化最初都持有一个引用。当线程元数据被销毁
+     * （`thpool_destroy`过程中），或线程回调内部调用`thpool_thread_unref_callback_arg`时，
+     * 引用会被释放。当最后一个引用被释放时，会调用析构函数。
      * 如果没有主动干预，`callback_arg`的生存期与线程池本身一样长。
      * 如果没有提供析构函数，则用户完全负责管理指针指向的数据的生命周期。
-     * 如果通过 `val` 成员传递简单值，则值本身没有生命周期问题。
      * 
      * **Ownership Transfer:** If `thpool_init` returns successfully and a `callback_arg_destructor`
      * is provided, the ownership and lifetime management of the data pointed to by
-     * `callback_arg.ptr` is transferred to the thread pool. If `thpool_init` fails,
+     * `callback_arg` is transferred to the thread pool. If `thpool_init` fails,
      * the ownership remains with the caller, and the caller is responsible for cleanup.
      * 
      * **所有权转移：** 如果提供了`callback_arg_destructor`且`thpool_init`成功返回，
-     * 则`callback_arg.ptr`指向的数据的所有权和生命周期管理将转移给线程池托管。
+     * 则`callback_arg`指向的数据的所有权和生命周期管理将转移给线程池托管。
      * 如果`thpool_init`失败，所有权仍归调用者所有，调用者负责清理。
      * 
      * @ref callback_arg_destructor for cleanup of pointed-to data.
      * 参见`callback_arg_destructor`以了解指向数据的清理。
      */
-    threadpool_arg  callback_arg;
+    void    *callback_arg;
     /**
      * @brief Destructor function for @ref callback_arg.
      *
-     * If the data pointed to by callback_arg.ptr requires cleanup (e.g., was malloc'ed),
+     * If the data pointed to by callback_arg requires cleanup (e.g., was malloc'ed),
      * provide a destructor function here. This function will be called when the
      * reference count for `callback_arg` drops to zero.
      * 
      * `callback_arg` 的析构函数。
-     * 如果`callback_arg.ptr`指向的数据需要清理（例如，使用`malloc`分配），
+     * 如果`callback_arg`指向的数据需要清理（例如，使用`malloc`分配），
      * 在此处提供一个析构函数。当`callback_arg`的引用计数降至零时，将调用此函数。
      *
      * @param arg   The callback argument value (a copy of @ref callback_arg) to be destructed.
@@ -309,7 +283,7 @@ typedef struct threadpool_config {
  *         .work_num_max = 100,
  *         .thread_start_cb = my_thread_start_callback,
  *         .thread_end_cb = my_thread_end_callback,
- *         .callback_arg = {.val = 0}, // Example: Pass a simple value
+ *         .callback_arg = (void *)(uintptr_t)0, // Example: Pass a simple value (This conversion is implementation-defined. Do not dereference the resulting pointer.)
  *         .callback_arg_destructor = NULL // No cleanup needed for a simple value
  *     };
  *     threadpool pool = thpool_init(&conf);
@@ -335,7 +309,7 @@ typedef struct threadpool_config {
  *         .work_num_max = 50,
  *         .thread_start_cb = my_thread_start_using_config,
  *         .thread_end_cb = NULL,
- *         .callback_arg = { .ptr = (void*)&((MyConfigStruct){ .setting1 = 123, .setting2 = "abc" }) }, // Pointer to compound literal
+ *         .callback_arg = &((MyConfigStruct){ .setting1 = 123, .setting2 = "abc" }), // Pointer to compound literal
  *         .callback_arg_destructor = NULL // Compound literal on stack, no free needed
  *     } ) );
  *     if (pool == NULL) { 
@@ -350,15 +324,15 @@ typedef struct threadpool_config {
  *     return 0;
  * }
  * // Assuming MyConfigStruct is defined elsewhere
- * // void my_thread_start_using_config(threadpool_arg arg, threadpool_thread current_thrd) {
- * //     MyConfigStruct *config = (MyConfigStruct*)arg.ptr;
+ * // void my_thread_start_using_config(void *arg, threadpool_thread current_thrd) {
+ * //     MyConfigStruct *config = arg;
  * //     // ... use config->setting1 etc. ...
  * // }
  *
  * @example
  * // Example 3: Initialization with callback_arg pointing to heap-allocated data + destructor
  * typedef struct { int resource_id; } ResourceData;
- * void cleanup_resource_data(threadpool_arg arg); // User-defined cleanup function
+ * void cleanup_resource_data(void *arg); // User-defined cleanup function
  * // ... main function ...
  * { // Create a new scope to manage memory
  *     ResourceData *res_data = malloc(sizeof(ResourceData));
@@ -371,7 +345,7 @@ typedef struct threadpool_config {
  *         // ... other config ...
  *         .thread_start_cb = my_thread_start_using_resource,
  *         .thread_end_cb = NULL,
- *         .callback_arg = { .ptr = res_data }, // Pointer to heap data
+ *         .callback_arg = res_data, // Pointer to heap data
  *         .callback_arg_destructor = cleanup_resource_data // Provide destructor
  *     } ) );
  *     if (pool == NULL) { 
@@ -389,9 +363,9 @@ typedef struct threadpool_config {
  * } // Scope ends
  *
  * // User-defined cleanup function
- * // void cleanup_resource_data(threadpool_arg arg) {
- * //     // arg is a copy of the threadpool_arg passed during init
- * //     ResourceData *data_to_free = (ResourceData*)arg.ptr;
+ * // void cleanup_resource_data(void *arg) {
+ * //     // arg is a copy of the callback_arg passed during init
+ * //     ResourceData *data_to_free = arg;
  * //     // ... perform any nested cleanup if needed ...
  * //     free(data_to_free); // Free the top-level block
  * // }
@@ -510,22 +484,16 @@ int thpool_num_threads_working(threadpool);
  *
  * @param pool         The thread pool handle to which the work will be added.
  * @param function_p   Pointer to the task function to add as work.
- * The function should have the signature void (*)(threadpool_arg arg, threadpoolthread current_thrd).
+ * The function should have the signature void (*)(void *arg, threadpoolthread current_thrd).
  * Must not be NULL.
- * @param arg          The argument for the task function, encapsulated in a threadpool_arg union.
- * This argument is passed by value.
- * 使用一个联合体`threadpool_arg`来定义你的参数。你的工作函数仅允许将该参数解释为`val`或`ptr`其一。
- * 你在传参时，应严格根据工作函数的解析方式约定你的`threadpool_arg`的参数传递方式是`val`还是`ptr`。
+ * @param arg          The argument for the task function.
  *
- * @note The user is responsible for ensuring that any data pointed to by arg.ptr
- * remains valid until the task function finishes execution.
- * If the data requires complex cleanup, the task function itself or a mechanism
+ * @note If the data requires complex cleanup, the task function itself or a mechanism
  * within the task function (e.g., using thread context) must handle it.
  * A separate destructor for task arguments is NOT provided by the library.
  * A common pattern is to pass pointers to heap-allocated data and free the memory inside the task function.
  * Passing pointers to stack-allocated data is generally unsafe unless you can strictly guarantee the lifetime.
- * 禁止在传参时以一种方式定义`threadpool_arg`，而在工作函数中以另一种方式解析的情况发生。
- * 如果你的传入方式是`ptr`，即一个结构体指针，建议你传入堆上的指针，并在工作函数中传递到其他位置或销毁。
+ * 如果传入一个结构体指针，建议你传入堆上的指针，并在工作函数中传递到其他位置或销毁。
  * 如果传入栈上的指针，有可能会因为其生命周期结束，导致工作函数使用时发生错误。
  *
  * @return int         0 on success (job added), -1 otherwise (e.g., thread pool is being destroyed).
@@ -533,16 +501,16 @@ int thpool_num_threads_working(threadpool);
  *
  * @example
  * // Example 1: Adding a task with a simple integer value
- * void task_process_int(threadpool_arg args, threadpoolthread current_thrd);
+ * void task_process_int(void *args, threadpoolthread current_thrd);
  * // ... main function ...
  *     threadpool pool = thpool_init(&conf);
  *     // ...
  *     int value_to_process = 10;
- *     threadpool_arg task_arg_int = {.val = value_to_process}; // Pass value by embedding in union
- *     thpool_add_work(pool, task_process_int, task_arg_int); // Pass union value
+ *     void *task_arg_int = (void *)(intptr_t)value_to_process; // Pass value (This conversion is implementation-defined. Do not dereference the resulting pointer.)
+ *     thpool_add_work(pool, task_process_int, task_arg_int);
  * // ...
- * void task_process_int(threadpool_arg args, threadpoolthread current_thrd) {
- *     int num = (int)args.val; // Access the value (be mindful of narrowing conversion)
+ * void task_process_int(void *args, threadpoolthread current_thrd) {
+ *     int num = (int)(intptr_t)args; // Access the value (be mindful of narrowing conversion)
  *     printf("Processing integer: %d\n", num);
  *     // No free needed for a value
  * }
@@ -551,7 +519,7 @@ int thpool_num_threads_working(threadpool);
  * // Example 2: Adding a task with a pointer to heap-allocated data
  * // User is responsible for freeing the data pointed to by the pointer!
  * typedef struct { double x, y; } Point;
- * void task_process_point(threadpool_arg args, threadpoolthread current_thrd);
+ * void task_process_point(void *args, threadpoolthread current_thrd);
  * // ... main function ...
  *     threadpool pool = thpool_init(&conf);
  *     // ...
@@ -560,16 +528,16 @@ int thpool_num_threads_working(threadpool);
  *         // handle error  
  *     }
  *     my_point->x = 1.0; my_point->y = 2.5;
- *     threadpool_arg task_arg_ptr = {.ptr = my_point}; // Pass pointer by embedding in union
- *     thpool_add_work(pool, task_process_point, task_arg_ptr); // Pass union value containing pointer
+ *     void *task_arg_ptr = my_point; // Pass pointer
+ *     thpool_add_work(pool, task_process_point, task_arg_ptr);
  *
  * // ... Later in main or elsewhere, after submitting,
  * //     you must ensure my_point is eventually freed *after* the task finishes.
  * //     This requires coordination (e.g., task signals completion, or task frees itself).
  * //     A common pattern is for the task itself to free the memory it received via pointer.
  * // ...
- * void task_process_point(threadpool_arg args, threadpoolthread current_thrd) {
- *     Point *p = (Point*)args.ptr; // Access the pointer
+ * void task_process_point(void *args, threadpoolthread current_thrd) {
+ *     Point *p = args; // Access the pointer
  *     printf("Processing point: (%f, %f)\n", p->x, p->y);
  *     free(p); // <-- Task takes responsibility for freeing heap data
  * }
@@ -580,16 +548,16 @@ int thpool_num_threads_working(threadpool);
  * @example
  * // Example 3: Adding a task with a pointer to stack-allocated data (DANGEROUS!)
  * // This will likely lead to a Use-After-Free error if the task runs after the calling function returns.
- * void task_use_stack_data(threadpool_arg args, threadpoolthread current_thrd);
+ * void task_use_stack_data(void *args, threadpoolthread current_thrd);
  * // ... inside some_function() { ...
  *     int local_value = 5;
- *     threadpool_arg task_arg_stack = {.ptr = &local_value};
+ *     void *task_arg_stack = &local_value;
  *     thpool_add_work(pool, task_use_stack_data, task_arg_stack); // DANGEROUS! Pointer becomes invalid when some_function returns.
  * // ... some_function returns ...
  * // ... task_use_stack_data runs later and uses invalid pointer ...
  * // }
- * // void task_use_stack_data(threadpool_arg args, threadpoolthread current_thrd) {
- * //     int *num_ptr = (int*)args.ptr;
+ * // void task_use_stack_data(void *args, threadpoolthread current_thrd) {
+ * //     int *num_ptr = args;
  * //     printf("Processing number: %d\n", *num_ptr); // CRASH or UB!
  * // }
  * @note Passing pointers to data with automatic storage duration (local variables, compound literals)
@@ -597,7 +565,7 @@ int thpool_num_threads_working(threadpool);
  * memory's lifetime covers the entire execution of the task function. This is hard to ensure.
  * Prefer passing values or pointers to dynamically allocated or static storage duration data.
  */
-int thpool_add_work(threadpool, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
+int thpool_add_work(threadpool, void (*function_p)(void *, threadpool_thread), void *arg_p);
 
 /**
  * @brief Gets the ID of the current thread pool thread.
@@ -798,10 +766,10 @@ void thpool_debug_conc_passport_destroy(thpool_debug_conc_passport);
  * 任务函数的参数。
  * @return int         0 on success, -1 otherwise (e.g., NULL handles, passport mismatch, or pool not in ALIVE state).
  * 成功时返回0，否则返回-1（例如句柄为`NULL`，通行证不匹配，或线程池不在`ALIVE`状态）。
- * @note User is responsible for managing lifetime of data pointed to by `arg.ptr`.
- * 用户负责管理`arg.ptr`指向的数据的生命周期。
+ * @note User is responsible for managing lifetime of data pointed to by `arg`.
+ * 用户负责管理`arg`指向的数据的生命周期。
  */
-int thpool_add_work_debug_conc(threadpool, thpool_debug_conc_passport, void (*function_p)(threadpool_arg, threadpool_thread), threadpool_arg arg_p);
+int thpool_add_work_debug_conc(threadpool, thpool_debug_conc_passport, void (*function_p)(void *, threadpool_thread), void *arg_p);
 
 /**
  * @brief Waits for all queued jobs to finish using a user-provided passport for diagnosis.
