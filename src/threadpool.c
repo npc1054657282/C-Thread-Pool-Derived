@@ -94,7 +94,7 @@ enum thpool_state {
 /* Generate string array for state names using the state list.  */
 /* 使用主列表宏来生成字符串数组。   */
 #define X(name, value) #name,
-static const char* thpool_state_strings[] = {
+static const char *thpool_state_strings[] = {
     THPOOL_STATE_LIST(X)
 };
 #undef X
@@ -106,7 +106,7 @@ static const char* thpool_state_strings[] = {
  * @param state The thread pool state enum value.
  * @return const char* The string representation of the state, or "UNKNOWN_THPOOL_STATE" for invalid values.
  */
-static inline const char* thpool_state_to_string(enum thpool_state state) {
+static inline const char *thpool_state_to_string(enum thpool_state state) {
     // Perform boundary checking to prevent enum values from exceeding array bounds
     // 进行边界检查，防止枚举值超出数组范围
     // Assuming THPOOL_UNBIND is 0 and state values are contiguous
@@ -138,14 +138,14 @@ static inline const char* thpool_state_to_string(enum thpool_state state) {
  * 用户管理时叫做debug concurrency passport，并发通行证，用户并发使用debug conc API时出示。
  * 如果thpool已过生存期，这些API将执行失败，但只要用户管理的passport未过生存期，不会发生uaf。
  */
-typedef struct conc_state_block_{
+typedef struct conc_state_block {
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API // Members included only if debug API is enabled
-    struct thpool_ *bind_pool;  /* Pointer to the thread pool this passport is bound to, used for validation. 用于校验。    */
+    struct thpool *bind_pool;  /* Pointer to the thread pool this passport is bound to, used for validation. 用于校验。    */
     char name_copy[7];  /* Copy of the thread pool name prefix, primarily for logging in debug messages. 仅仅用于打印错误日志。 */
 #endif
     atomic_int  num_api_use;    /* Atomic counter for the number of API calls currently using this passport.    */
     _Atomic enum thpool_state state;    /* Atomic state of the thread pool lifecycle.   */
-}conc_state_block_;
+}conc_state_block;
 
 /* 根据是否启用了调试并发API，决定日志是否包含相关信息。    */
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
@@ -157,8 +157,8 @@ typedef struct conc_state_block_{
 #endif
 
 /* Job */
-typedef struct job{
-    struct job* prev;                               /* pointer to previous job      */
+typedef struct job {
+    struct job *prev;                               /* pointer to previous job      */
     /**
      * @brief Task function pointer.
      *
@@ -178,7 +178,7 @@ typedef struct job{
 
 /* 将锁结构移出jobqueue，jobqueue结构体仅仅关心自己内部的任务，不关心与外部的同步。 */
 /* Job queue */
-typedef struct jobqueue{
+typedef struct jobqueue {
     job     *front;                         /* pointer to front of queue    */
     job     *rear;                          /* pointer to rear  of queue    */
     /**
@@ -202,10 +202,10 @@ typedef struct jobqueue{
 } jobqueue;
 
 /* Thread */
-typedef struct thread_{
+typedef struct thread {
     int         id;                         /* friendly id                  */
     pthread_t   pthread;                    /* pointer to actual thread     */
-    struct thpool_* thpool_p;               /* access to thpool             */
+    struct thpool   *thpool_p;              /* access to thpool             */
     /**
      * @brief Slot for thread-specific context data.
      *
@@ -217,15 +217,15 @@ typedef struct thread_{
      * 它本质仍由使用者在回调与工作函数中保存、管理与销毁，此处仅用于提供一个保存的位置。
      * 因此命名为“slot”。
      */
-    void*       thread_ctx_slot;            
-    char        thread_name[16];    /* Thread name for debugging/profiling. 线程名，原作者在thread_do中临时创建，这里在thread_init中先创建。    */
+    void        *thread_ctx_slot;
+    char        thread_name[16];            /* Thread name for debugging/profiling. 线程名，原作者在thread_do中临时创建，这里在thread_init中先创建。    */
     bool        callback_arg_ref_holding;   /* 如果用户提供了回调参数的析构函数，该布尔位指示是否本线程是否对回调参数持有引用。 */
-} thread_;
+} thread;
 
 /* Threadpool */
 /* 相关的一些变量被我修改为atomic_int类型。 */
-typedef struct thpool_{
-    thread_**    threads;                    /* pointer to threads           */
+typedef struct thpool {
+    thread      **threads;                  /* pointer to threads           */
     /**
      * Records the number of threads successfully created during initialization.
      * 记录创建时的thread数量，这依然重要，以避免在num_threads_alive不准确时错误统计导致销毁失误。
@@ -293,44 +293,44 @@ typedef struct thpool_{
      * 用户必须保证该接口的生存期比该thpool长。用户不传入则自己创建。
      * 把内部名起成与外部开放名相同，以提醒开发者在内部尽量慎用此结构，因为它的所有权可能在用户手里。
      */
-    conc_state_block_   *debug_conc_passport;
+    conc_state_block   *debug_conc_passport;
     /**
      * @brief Flag indicating if the associated passport was provided by the user.
      * True if user provided passport in config, false if library allocated it.
      */
     bool    passport_user_owned;
-} thpool_;
+} thpool;
 
 /* ========================== PROTOTYPES ============================ */
 
 // 删除了原作者的thread_hold，以及删除了所有二元信号量相关代码。
 // Helper function to initialize a single thread
-static int      thread_init(thpool_* thpool_p, struct thread_** thread_pout, int id);
+static int          thread_init(thpool *thpool_p, struct thread **thread_pout, int id);
 // The main function executed by each worker thread
-static void*    thread_do(void *thread_p_arg);
+static void        *thread_do(void *thread_p_arg);
 // Helper function to free thread resources
-static void     thread_destroy(struct thread_* thread_p);
+static void         thread_destroy(struct thread* thread_p);
 
 // 把jobqueue的push和pull均改为无锁保护版本，jobqueue操作仅仅关心自己作为一个结构体该做的事，不去关心与信号同步有关的事。
 // Job queue internal helper functions (unsafe - require external synchronization)
-static int      jobqueue_init(jobqueue* jobqueue_p, int max_len);
-static void     jobqueue_clear_unsafe(jobqueue* jobqueue_p);
-static void     jobqueue_push_unsafe(jobqueue* jobqueue_p, struct job* newjob_p);
-static struct job*  jobqueue_pull_unsafe(jobqueue* jobqueue_p);
-static void     jobqueue_destroy_unsafe(jobqueue* jobqueue_p);
+static int          jobqueue_init(jobqueue* jobqueue_p, int max_len);
+static void         jobqueue_clear_unsafe(jobqueue* jobqueue_p);
+static void         jobqueue_push_unsafe(jobqueue* jobqueue_p, struct job* newjob_p);
+static struct job  *jobqueue_pull_unsafe(jobqueue* jobqueue_p);
+static void         jobqueue_destroy_unsafe(jobqueue* jobqueue_p);
 
 // 新增的非api函数，相当于原作者的jobqueue_push和jobqueue_pull，提供了更复杂的信号同步功能。
 // Thread pool internal job handling functions (with synchronization)
-static int      thpool_put_job(thpool_* thpool_p, struct job* newjob_p);
-static struct job*  thpool_get_job(thpool_* thpool_p);
+static int          thpool_put_job(thpool* thpool_p, struct job* newjob_p);
+static struct job  *thpool_get_job(thpool* thpool_p);
 // 由部分API使用，判定调用的线程是否属于线程池内。以禁止一些不应由属于线程池的线程进行的操作。
-static inline bool  thpool_is_current_thread_owner(thpool_* thpool_p);
+static inline bool  thpool_is_current_thread_owner(thpool* thpool_p);
 // 原有api改名为inner。inner的api不涉及conc_state_block
 // Inner API functions (do not involve passport checks or use counting)
-static int      thpool_wait_inner(thpool_* thpool_p);
-static int      thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p);
-static int      thpool_reactivate_inner(thpool_* thpool_p);
-static int      thpool_num_threads_working_inner(thpool_* thpool_p);
+static int          thpool_wait_inner(thpool* thpool_p);
+static int          thpool_add_work_inner(thpool* thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p);
+static int          thpool_reactivate_inner(thpool* thpool_p);
+static int          thpool_num_threads_working_inner(thpool* thpool_p);
 // 在inner api的基础上增加了涉及conc_state_block的操作。
 // 其他api直接在inner api基础上用宏扩充。shutdown和destroy比较特殊，因此从一开始就设计成safe inner api。
 /**
@@ -340,16 +340,16 @@ static int      thpool_num_threads_working_inner(thpool_* thpool_p);
  * @param passport The concurrency passport.
  * @return 0 on success, -1 on error.
  */
-static int      thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
-static int      thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
-static inline int   thpool_wait_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
-static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(void *, threadpool_thread), void *arg_p);
-static inline int   thpool_reactivate_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
-static inline int   thpool_num_threads_working_safe_inner(thpool_* thpool_p, conc_state_block_ *passport);
+static int          thpool_shutdown_safe_inner(thpool *thpool_p, conc_state_block *passport);
+static int          thpool_destroy_safe_inner(thpool *thpool_p, conc_state_block *passport);
+static inline int   thpool_wait_safe_inner(thpool *thpool_p, conc_state_block *passport);
+static inline int   thpool_add_work_safe_inner(thpool *thpool_p, conc_state_block *passport, void (*function_p)(void *, threadpool_thread), void *arg_p);
+static inline int   thpool_reactivate_safe_inner(thpool *thpool_p, conc_state_block *passport);
+static inline int   thpool_num_threads_working_safe_inner(thpool *thpool_p, conc_state_block *passport);
 
 /* 如果启用调试并发API，在头文件中定义此初始化函数。    */
 #ifndef THPOOL_ENABLE_DEBUG_CONC_API
-conc_state_block_* thpool_debug_conc_passport_init();
+conc_state_block   *thpool_debug_conc_passport_init();
 #endif
 
 /* ============================ THREAD ============================== */
@@ -361,9 +361,9 @@ conc_state_block_* thpool_debug_conc_passport_init();
  * @param id            id to be given to the thread
  * @return 0 on success, -1 otherwise.
  */
-static int thread_init (thpool_* thpool_p, struct thread_** thread_pout, int id){
-    *thread_pout = malloc(sizeof(struct thread_));
-    if (unlikely(*thread_pout == NULL)){
+static int thread_init(thpool *thpool_p, struct thread **thread_pout, int id) {
+    *thread_pout = malloc(sizeof(struct thread));
+    if(unlikely(*thread_pout == NULL)){
         thpool_log_error("thread_init(): Could not allocate memory for thread");
         if(thpool_p->callback_arg_destructor != NULL){
             /* 线程 */
@@ -426,8 +426,8 @@ unref_callback_arg:
  * @param  thread_p_arg thread that will run this function
  * @return nothing
  */
-static void* thread_do(void* thread_p_arg){
-    struct thread_ *thread_p = thread_p_arg;
+static void *thread_do(void *thread_p_arg) {
+    struct thread *thread_p = thread_p_arg;
 
     /* Set thread name for profiling and debugging */
     /* 原作者在此处构造线程名，改为在init构造，仅需使用thread_p->thread_name的构造成品。 */
@@ -443,7 +443,7 @@ static void* thread_do(void* thread_p_arg){
 #endif
 
     /* Assure all threads have been created before starting serving */
-    thpool_* thpool_p = thread_p->thpool_p;
+    thpool *thpool_p = thread_p->thpool_p;
 
     pthread_setspecific(thpool_p->key, thpool_p);
 
@@ -451,16 +451,16 @@ static void* thread_do(void* thread_p_arg){
     atomic_fetch_add(&thpool_p->num_threads_alive, 1);
 
     /* 执行开始任务回调，如果有的话。   */
-    if (thpool_p->thread_start_cb){
+    if(thpool_p->thread_start_cb) {
         thpool_p->thread_start_cb(thpool_p->callback_arg, thread_p);
     }
 
-    while(atomic_load(&thpool_p->threads_keepalive)){
+    while(atomic_load(&thpool_p->threads_keepalive)) {
 
-        job* job_p = thpool_get_job(thread_p->thpool_p);
+        job *job_p = thpool_get_job(thread_p->thpool_p);
 
         //如果job_p为NULL，这基本意味着进程池正在被摧毁。
-        if (job_p != NULL){
+        if(job_p != NULL) {
 
             atomic_fetch_add(&thpool_p->num_threads_working, 1);
 
@@ -501,7 +501,7 @@ static void* thread_do(void* thread_p_arg){
 }
 
 /* Frees a thread  */
-static void thread_destroy (thread_* thread_p){
+static void thread_destroy(thread *thread_p) {
     if(unlikely(thread_p == NULL)){
         return;
     }
@@ -524,27 +524,27 @@ static void thread_destroy (thread_* thread_p){
 
 /* ====================== THREAD WORKER API ========================= */
 
-int thpool_thread_get_id(threadpool_thread current_thrd){
+int thpool_thread_get_id(threadpool_thread current_thrd) {
     return current_thrd->id;
 }
 
-const char* thpool_thread_get_name(threadpool_thread current_thrd){
+const char* thpool_thread_get_name(threadpool_thread current_thrd) {
     return (const char*)current_thrd->thread_name;
 }
 
-void * thpool_thread_get_context(threadpool_thread current_thrd){
+void * thpool_thread_get_context(threadpool_thread current_thrd) {
     return current_thrd->thread_ctx_slot;
 }
 
-void thpool_thread_set_context(threadpool_thread current_thrd, void *ctx){
+void thpool_thread_set_context(threadpool_thread current_thrd, void *ctx) {
     current_thrd->thread_ctx_slot = ctx;
 }
 
-void thpool_thread_unset_context(threadpool_thread current_thrd){
+void thpool_thread_unset_context(threadpool_thread current_thrd) {
     current_thrd->thread_ctx_slot = NULL;
 }
 
-void thpool_thread_unref_callback_arg(threadpool_thread current_thrd){
+void thpool_thread_unref_callback_arg(threadpool_thread current_thrd) {
     if(current_thrd->callback_arg_ref_holding && likely(current_thrd->thpool_p->callback_arg_destructor != NULL)){
         current_thrd->callback_arg_ref_holding = false;
         if(atomic_fetch_sub_explicit(&current_thrd->thpool_p->callback_arg_refcount, 1, memory_order_acq_rel) == 1){
@@ -558,7 +558,7 @@ void thpool_thread_unref_callback_arg(threadpool_thread current_thrd){
 
 /* 新增参数最大任务数man_len。如果不是正整数，视为未设置上限。  */
 /* Initialize queue */
-static int jobqueue_init(jobqueue* jobqueue_p, int max_len){
+static int jobqueue_init(jobqueue *jobqueue_p, int max_len) {
     jobqueue_p->len = 0;
     jobqueue_p->front = NULL;
     jobqueue_p->rear  = NULL;
@@ -568,7 +568,7 @@ static int jobqueue_init(jobqueue* jobqueue_p, int max_len){
 }
 
 /* Clear the queue */
-static void jobqueue_clear_unsafe(jobqueue* jobqueue_p){
+static void jobqueue_clear_unsafe(jobqueue *jobqueue_p) {
 
     while(jobqueue_p->len){
         free(jobqueue_pull_unsafe(jobqueue_p));
@@ -581,7 +581,7 @@ static void jobqueue_clear_unsafe(jobqueue* jobqueue_p){
 }
 
 /* Free all queue resources back to the system */
-static void jobqueue_destroy_unsafe(jobqueue* jobqueue_p){
+static void jobqueue_destroy_unsafe(jobqueue *jobqueue_p) {
     jobqueue_clear_unsafe(jobqueue_p);
 }
 
@@ -589,7 +589,7 @@ static void jobqueue_destroy_unsafe(jobqueue* jobqueue_p){
 /* 修改为不加锁的版本，最简化push逻辑。使用该函数应在读写锁保护下。有保护的版本为thpool_put_job。 */
 /* Add (allocated) job to queue
 */
-static void jobqueue_push_unsafe(jobqueue* jobqueue_p, struct job* newjob){
+static void jobqueue_push_unsafe(jobqueue *jobqueue_p, struct job *newjob) {
 
     newjob->prev = NULL;
 
@@ -611,9 +611,9 @@ static void jobqueue_push_unsafe(jobqueue* jobqueue_p, struct job* newjob){
 /* Get first job from queue(removes it from queue)
 * Notice: Caller MUST hold a mutex
 */
-static struct job* jobqueue_pull_unsafe(jobqueue* jobqueue_p){
+static struct job *jobqueue_pull_unsafe(jobqueue *jobqueue_p) {
 
-    job* job_p = jobqueue_p->front;
+    job *job_p = jobqueue_p->front;
 
     switch(jobqueue_p->len){
 
@@ -648,9 +648,9 @@ static struct job* jobqueue_pull_unsafe(jobqueue* jobqueue_p){
  * @return threadpool A handle to the created thread pool on success, or NULL on error.
  * Returns NULL if memory allocation fails, thread creation fails, or passport binding/initialization fails.
  */
-struct thpool_* thpool_init(threadpool_config *conf){
+struct thpool *thpool_init(threadpool_config *conf) {
 
-    if(unlikely(conf == NULL)){
+    if(unlikely(conf == NULL)) {
         errno = EINVAL;
         return NULL;
     }
@@ -658,9 +658,9 @@ struct thpool_* thpool_init(threadpool_config *conf){
     int num_threads = (conf->num_threads < 0)?0:conf->num_threads;
 
     /* Make new thread pool */
-    thpool_* thpool_p;
-    thpool_p = malloc(sizeof(struct thpool_));
-    if (unlikely(thpool_p == NULL)){
+    thpool *thpool_p;
+    thpool_p = malloc(sizeof(struct thpool));
+    if(unlikely(thpool_p == NULL)) {
         thpool_log_error("thpool_init(): Could not allocate memory for thread pool");
         return NULL;
     }
@@ -680,7 +680,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
     thpool_p->passport_user_owned = false;
     thpool_p->debug_conc_passport = thpool_debug_conc_passport_init();
 #endif
-    if(thpool_p->debug_conc_passport == NULL){
+    if(thpool_p->debug_conc_passport == NULL) {
         thpool_log_error("thpool_init(): Could not allocate memory for conc state block");
         goto cleanup_pool;
     }
@@ -689,7 +689,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
     /* Bind passport to this thread pool. */
     bool bind_success = false;
     enum thpool_state expected = THPOOL_UNBIND;
-    while(!atomic_compare_exchange_weak(&thpool_p->debug_conc_passport->state, &expected, THPOOL_ALIVE)){
+    while(!atomic_compare_exchange_weak(&thpool_p->debug_conc_passport->state, &expected, THPOOL_ALIVE)) {
         if(likely(expected == THPOOL_UNBIND)) {
             /* 应该是弱交换造成的伪错误，继续循环。 */
             continue;
@@ -726,37 +726,37 @@ struct thpool_* thpool_init(threadpool_config *conf){
      * 如果用户对callback_arg传入了析构函数，则各线程默认均持有引用。此外`thpool_init`自己也视为持有引用。
      * `thpool_init`的引用持续到所有线程的创建函数执行完成。
      */
-    if(thpool_p->callback_arg_destructor != NULL){
+    if(thpool_p->callback_arg_destructor != NULL) {
         atomic_init(&thpool_p->callback_arg_refcount, num_threads + 1);
     }
-    else{
+    else {
         atomic_init(&thpool_p->callback_arg_refcount, 0);
     }
 
     /* 在任务队列创建前，先创建相关锁。 */
     /* Job queue related locks and condition variables initialization. */
     int err = pthread_mutex_init(&(thpool_p->jobqueue_rwmutex), NULL);
-    if (unlikely(err != 0)) { // Check init result
+    if(unlikely(err != 0)) { // Check init result
         thpool_log_error("thpool_init(): Could not initialize jobqueue_rwmutex");
         errno = err;
         goto cleanup_passport;
     }
     /* 创建任务队列。   */
     /* Initialise the job queue */
-    if (unlikely(jobqueue_init(&thpool_p->jobqueue, conf->work_num_max) == -1)){
+    if(unlikely(jobqueue_init(&thpool_p->jobqueue, conf->work_num_max) == -1)) {
         thpool_log_error("thpool_init(): Could not allocate memory for job queue");
         goto cleanup_jobqueue_rwmutex;
     }
 
     /* 任务队列条件量初始化。   */
     err = pthread_cond_init(&thpool_p->get_job_unblock, NULL);
-    if (unlikely(err != 0)) { // Check init result
+    if(unlikely(err != 0)) { // Check init result
         thpool_log_error("thpool_init(): Could not initialize get_job_unblock");
         errno = err;
         goto cleanup_jobqueue;
     }
     err = pthread_cond_init(&thpool_p->put_job_unblock, NULL);
-    if (unlikely(err != 0)) { // Check init result
+    if(unlikely(err != 0)) { // Check init result
         thpool_log_error("thpool_init(): Could not initialize put_job_unblock");
         errno = err;
         goto cleanup_get_job_unblock;
@@ -764,15 +764,15 @@ struct thpool_* thpool_init(threadpool_config *conf){
 
     /* TSD key 初始化。         */
     err = pthread_key_create(&thpool_p->key, NULL);
-    if (unlikely(err != 0)) {
+    if(unlikely(err != 0)) {
         thpool_log_error("thpool_init(): Could not initialize TSD key");
         errno = err;
         goto cleanup_put_job_unblock;
     }
 
     /* Make threads in pool */
-    thpool_p->threads = malloc(num_threads * sizeof(struct thread_ *));
-    if (unlikely(thpool_p->threads == NULL)){
+    thpool_p->threads = malloc(num_threads * sizeof(struct thread *));
+    if(unlikely(thpool_p->threads == NULL)) {
         thpool_log_error("thpool_init(): Could not allocate memory for threads");
         goto cleanup_TSD_key;
     }
@@ -794,7 +794,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
 
     /* Thread init */
     int n;
-    for (n=0; n<num_threads; n++){
+    for(n=0; n<num_threads; n++) {
         int thread_init_err = thread_init(thpool_p, &thpool_p->threads[n], n);
         thpool_log_debug("THPOOL_DEBUG: Created thread %d in pool", n);
         if (unlikely(thread_init_err != 0)) {
@@ -802,14 +802,14 @@ struct thpool_* thpool_init(threadpool_config *conf){
             num_threads -= 1;
         }
     }
-    if(unlikely(num_threads <= 0)){
+    if(unlikely(num_threads <= 0)) {
         goto cleanup_threads_all_idle_cond; 
     }
     /**
      * 如果线程没有全部创建失败，就视为线程池创建成功。此时解除`thpool_init`自身的引用计数。
      * 因为此刻可以保证不会再发生线程池创建失败的可能性，因此如果引用计数降至0，可以放心地执行析构。
      */
-    if(thpool_p->callback_arg_destructor != NULL){
+    if(thpool_p->callback_arg_destructor != NULL) {
         if(atomic_fetch_sub_explicit(&thpool_p->callback_arg_refcount, 1, memory_order_acq_rel) == 1){
             thpool_p->callback_arg_destructor(thpool_p->callback_arg);
             thpool_log_debug("callback_arg destructed by thpool_init.");
@@ -817,7 +817,7 @@ struct thpool_* thpool_init(threadpool_config *conf){
     }
 
     /* Wait for threads to initialize */
-    while (atomic_load(&thpool_p->num_threads_alive) != num_threads) {
+    while(atomic_load(&thpool_p->num_threads_alive) != num_threads) {
         /**
          * 为了让设计简单些，在创建与销毁等性能不那么敏感的地方，没有再添加条件变量。
          * 而相比原作者的自旋等待，采取了`usleep`等待的折中方案。
@@ -847,10 +847,10 @@ cleanup_jobqueue:
 cleanup_jobqueue_rwmutex:
     pthread_mutex_destroy(&(thpool_p->jobqueue_rwmutex));
 cleanup_passport:
-    if(bind_success){
+    if(bind_success) {
         /* 如果最初绑定成功，passport状态块回退回THPOOL_UNBIND。    */
         expected = THPOOL_ALIVE;
-        while(!atomic_compare_exchange_weak(&thpool_p->debug_conc_passport->state, &expected, THPOOL_UNBIND)){
+        while(!atomic_compare_exchange_weak(&thpool_p->debug_conc_passport->state, &expected, THPOOL_UNBIND)) {
             if(expected == THPOOL_ALIVE) {
                 /* 应该是弱交换造成的伪错误，继续循环。 */
                 continue;
@@ -869,7 +869,7 @@ cleanup_passport:
     thpool_p->debug_conc_passport->bind_pool = NULL;
 #endif
     }
-    if(!thpool_p->passport_user_owned){
+    if(!thpool_p->passport_user_owned) {
         /* 若passport非用户持有，无警告地简单清理掉passport对象。   */
         free(thpool_p->debug_conc_passport);
     }
@@ -879,15 +879,15 @@ cleanup_pool:
 }
 
 /* 将thpool的threads_keepalive设置为false，并等待所有线程与正在执行中的thpool_add_work执行完毕。    */
-static int  thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *passport){
+static int thpool_shutdown_safe_inner(thpool *thpool_p, conc_state_block *passport) {
     /* 禁止线程池内的线程本身执行`thpool_shutdown`。    */
-    if(thpool_is_current_thread_owner(thpool_p)){
+    if(thpool_is_current_thread_owner(thpool_p)) {
         errno = EINVAL;
         return -1;
     }
     enum thpool_state expected = THPOOL_ALIVE;
     /* 若交换失败，则发生了重复调用，错误退出。 */
-    if(!atomic_compare_exchange_strong(&passport->state, &expected, THPOOL_SHUTTING_DOWN)){
+    if(!atomic_compare_exchange_strong(&passport->state, &expected, THPOOL_SHUTTING_DOWN)) {
         thpool_log_error("cannot shutdown! The "THPOOL_PASSPORT_STATUS_REPORTER(passport, expected));
         errno = EINVAL;
         return -1;
@@ -904,12 +904,12 @@ static int  thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *pas
     pthread_mutex_unlock(&thpool_p->jobqueue_rwmutex);
 
     /* Poll remaining threads */
-    while (atomic_load(&thpool_p->num_threads_alive) != 0){
+    while(atomic_load(&thpool_p->num_threads_alive) != 0) {
         sleep(1);
     }
 
     /* 等待所有正在使用中的api退出。 */
-    while (atomic_load(&passport->num_api_use) != 0){
+    while(atomic_load(&passport->num_api_use) != 0) {
         sleep(1);
     }
 
@@ -920,7 +920,7 @@ static int  thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *pas
 
     expected = THPOOL_SHUTTING_DOWN;
     /* 若交换失败，不明原因，可能是弱交换的固有问题，继续等待   */
-    while(!atomic_compare_exchange_weak(&passport->state, &expected, THPOOL_SHUTDOWN)){
+    while(!atomic_compare_exchange_weak(&passport->state, &expected, THPOOL_SHUTDOWN)) {
         if(expected == THPOOL_SHUTTING_DOWN) {
             /* 应该是弱交换造成的伪错误，继续循环。 */
             continue;
@@ -936,7 +936,7 @@ static int  thpool_shutdown_safe_inner(thpool_* thpool_p, conc_state_block_ *pas
 }
 
 /* Destroy the threadpool */
-static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *passport) {
+static int thpool_destroy_safe_inner(thpool *thpool_p, conc_state_block *passport) {
     /* 禁止线程池内的线程本身执行`thpool_destroy`。    */
     if(thpool_is_current_thread_owner(thpool_p)){
         errno = EINVAL;
@@ -945,10 +945,10 @@ static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *pass
 
     enum thpool_state expected = THPOOL_SHUTDOWN;
     /* 若交换失败，情况可能有多种，分别讨论。   */
-    while(!atomic_compare_exchange_weak(&passport->state, &expected, THPOOL_DESTROYING)){
+    while(!atomic_compare_exchange_weak(&passport->state, &expected, THPOOL_DESTROYING)) {
         /* 根据不同情形决定不同应对 */
         switch(expected){
-            case THPOOL_ALIVE:{
+            case THPOOL_ALIVE: {
                 //还没有开始shutdown，尝试运行shutdown，并警告用户尽量先shutdown。
                 thpool_log_warn("threadpool "
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
@@ -963,7 +963,7 @@ static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *pass
                 /* 不论结果如何，先continue根据新的expected再看。*/
                 break;
             }
-            case THPOOL_SHUTTING_DOWN:{
+            case THPOOL_SHUTTING_DOWN: {
                 thpool_log_warn("threadpool "
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
                     "%p:%s "
@@ -976,11 +976,11 @@ static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *pass
                 sleep(1);
                 break;
             }
-            case THPOOL_SHUTDOWN:{
+            case THPOOL_SHUTDOWN: {
                 /* 假失败，重试。   */
                 break;
             }
-            default:{
+            default: {
                 thpool_log_error("cannot destroy! The "THPOOL_PASSPORT_STATUS_REPORTER(passport, expected));
                 errno = EINVAL;
                 return -1;
@@ -992,7 +992,7 @@ static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *pass
 
     /* Deallocs */
     int n;
-    for (n=0; n < thpool_p->num_threads; n++){
+    for(n=0; n < thpool_p->num_threads; n++) {
         thread_destroy(thpool_p->threads[n]);
     }
     free(thpool_p->threads);
@@ -1007,7 +1007,7 @@ static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *pass
     free(thpool_p);
     expected = THPOOL_DESTROYING;
     /* 若交换失败，不明原因，可能是弱交换的固有问题，继续等待   */
-    while(!atomic_compare_exchange_weak(&passport->state, &expected, THPOOL_DESTROYED)){
+    while(!atomic_compare_exchange_weak(&passport->state, &expected, THPOOL_DESTROYED)) {
         if(expected == THPOOL_DESTROYING) {
             /* 应该是弱交换造成的伪错误，继续循环。 */
             continue;
@@ -1019,14 +1019,14 @@ static int  thpool_destroy_safe_inner(thpool_* thpool_p, conc_state_block_ *pass
         }
     }
     /* 若passport非用户持有，无警告地简单清理掉passport对象。   */
-    if(!passport_user_owned){
+    if(!passport_user_owned) {
         free(passport);
     }
     return 0;
 }
 
 /* 有一个返回值，通知结果是成功还是失败。0为成功，-1为失败。失败一般是因为已经thpool正在shutdown。  */
-static int thpool_put_job(thpool_* thpool_p, struct job* newjob) {
+static int thpool_put_job(thpool *thpool_p, struct job *newjob) {
     pthread_mutex_lock(&thpool_p->jobqueue_rwmutex);
     thpool_log_debug("thpool_put_job: Entering, jobqueue.len = %d", thpool_p->jobqueue.len);
 
@@ -1048,7 +1048,7 @@ static int thpool_put_job(thpool_* thpool_p, struct job* newjob) {
     }
 
     //在锁内仅需关心一次keealive情况。后续即使再遭遇thpool的销毁，在锁内也可以保护此流程安全。
-    if (!thpool_alive) {
+    if(!thpool_alive) {
         pthread_mutex_unlock(&thpool_p->jobqueue_rwmutex);
         errno = ECANCELED;
         return -1;
@@ -1057,7 +1057,7 @@ static int thpool_put_job(thpool_* thpool_p, struct job* newjob) {
     jobqueue_push_unsafe(&thpool_p->jobqueue, newjob);
 
     /* 如果此次行为将job从0变为1，发送一个信号告诉jobqueue非空。    */
-    if (thpool_p->jobqueue.len == 1) {
+    if(thpool_p->jobqueue.len == 1) {
         /* 注意，等待信号量的线程，在收到信号量后，在持有锁时并无优先权，仅仅只是重新放到了竞争锁的一个队列而已。
         * 这意味着，如果多个get_job任务阻塞时，有多个put_job发生，第一个收到信号的get_job不保证一定比其他put_job优先执行。
         * 于是，其他get_job就始终错过了信号。为此，这里需要用广播信号。
@@ -1070,22 +1070,22 @@ static int thpool_put_job(thpool_* thpool_p, struct job* newjob) {
     return 0;
 }
 
-static struct job*  thpool_get_job(thpool_* thpool_p){
+static struct job *thpool_get_job(thpool *thpool_p) {
     pthread_mutex_lock(&thpool_p->jobqueue_rwmutex);
     bool thpool_alive = atomic_load(&thpool_p->threads_keepalive);
-    struct job* ret;
+    struct job *ret;
 
     /**
      * 在不活跃状态，阻塞。此外，若队列空，阻塞。但若阻塞期间线程池摧毁，退出。 
      * 目前对于活跃状态的检查是冗余的，因为只有`thpool_wait`会修改active状态，而此时队列一定为空。
      * 但考虑到可扩展性，保留对`threads_active`的阻塞检查。
      */
-    while(thpool_alive && (thpool_p->jobqueue.len == 0 || unlikely(!atomic_load(&thpool_p->threads_active)))){
+    while(thpool_alive && (thpool_p->jobqueue.len == 0 || unlikely(!atomic_load(&thpool_p->threads_active)))) {
         pthread_cond_wait(&thpool_p->get_job_unblock, &thpool_p->jobqueue_rwmutex);
         thpool_alive = atomic_load(&thpool_p->threads_keepalive);
     }
 
-    if (!thpool_alive) {
+    if(!thpool_alive) {
         pthread_mutex_unlock(&thpool_p->jobqueue_rwmutex);
         errno = ECANCELED;
         return NULL;
@@ -1094,7 +1094,7 @@ static struct job*  thpool_get_job(thpool_* thpool_p){
     ret = jobqueue_pull_unsafe(&thpool_p->jobqueue);
 
     /* 如果jobqueue设置了上限，且此次行为将job队列从满变为满-1，发送一个信号告诉jobqueue非满。    */
-    if (thpool_p->jobqueue.max_len && (thpool_p->jobqueue.len == thpool_p->jobqueue.max_len - 1)){
+    if(thpool_p->jobqueue.max_len && (thpool_p->jobqueue.len == thpool_p->jobqueue.max_len - 1)) {
         /**
          * 注意，等待信号量的线程，在收到信号量后，在持有锁时并无优先权，仅仅只是重新放到了竞争锁的一个队列而已。
          * 这意味着，如果多个put_job任务阻塞时，有多个get_job发生，第一个收到信号的put_job不保证一定比其他get_job优先执行。
@@ -1108,13 +1108,13 @@ static struct job*  thpool_get_job(thpool_* thpool_p){
     return ret;
 }
 
-static inline bool  thpool_is_current_thread_owner(thpool_* thpool_p){
+static inline bool thpool_is_current_thread_owner(thpool *thpool_p) {
     return pthread_getspecific(thpool_p->key) == thpool_p;
 }
 
 /* Add work to the thread pool */
-static int thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p){
-    job* newjob;
+static int thpool_add_work_inner(thpool *thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p) {
+    job *newjob;
 
     newjob=malloc(sizeof(struct job));
     if (unlikely(newjob == NULL)){
@@ -1133,9 +1133,9 @@ static int thpool_add_work_inner(thpool_* thpool_p, void (*function_p)(void *, t
 }
 
 /* Wait until all jobs have finished */
-static int thpool_wait_inner(thpool_* thpool_p){
+static int thpool_wait_inner(thpool* thpool_p) {
     /* 禁止线程池内的线程本身执行`thpool_wait`。    */
-    if(thpool_is_current_thread_owner(thpool_p)){
+    if(thpool_is_current_thread_owner(thpool_p)) {
         errno = EINVAL;
         return -1;
     }
@@ -1167,7 +1167,7 @@ static int thpool_wait_inner(thpool_* thpool_p){
 }
 
 /* 解除thpool_put_job的阻塞 */
-static int thpool_reactivate_inner(thpool_* thpool_p){
+static int thpool_reactivate_inner(thpool* thpool_p) {
     pthread_mutex_lock(&thpool_p->jobqueue_rwmutex);
     atomic_store(&thpool_p->threads_active, true);
     thpool_log_debug("thpool_reactivate_inner: threads_active successfully set to %d", atomic_load(&thpool_p->threads_active));
@@ -1177,16 +1177,16 @@ static int thpool_reactivate_inner(thpool_* thpool_p){
     return 0;
 }
 
-static int thpool_num_threads_working_inner(thpool_* thpool_p){
+static int thpool_num_threads_working_inner(thpool *thpool_p) {
     return atomic_load(&thpool_p->num_threads_working);
 }
 
 #define DEFINE_THPOOL_EASY_API_SAFE_INNER(API) \
-static inline int   thpool_##API##_safe_inner(thpool_* thpool_p, conc_state_block_ *passport){ \
+static inline int thpool_##API##_safe_inner(thpool *thpool_p, conc_state_block *passport) { \
     int ret; \
     atomic_fetch_add(&passport->num_api_use, 1); \
     enum thpool_state state = atomic_load(&passport->state); \
-    if(likely(state == THPOOL_ALIVE)){ \
+    if(likely(state == THPOOL_ALIVE)) { \
         ret = thpool_##API##_inner(thpool_p); \
     } \
     else { \
@@ -1202,11 +1202,11 @@ DEFINE_THPOOL_EASY_API_SAFE_INNER(wait)
 DEFINE_THPOOL_EASY_API_SAFE_INNER(reactivate)
 DEFINE_THPOOL_EASY_API_SAFE_INNER(num_threads_working)
 
-static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(void *, threadpool_thread), void *arg_p){
+static inline int thpool_add_work_safe_inner(thpool *thpool_p, conc_state_block *passport, void (*function_p)(void *, threadpool_thread), void *arg_p) {
     int ret;
     atomic_fetch_add(&passport->num_api_use, 1);
     enum thpool_state state = atomic_load(&passport->state);
-    if(likely(state == THPOOL_ALIVE)){
+    if(likely(state == THPOOL_ALIVE)) {
         ret = thpool_add_work_inner(thpool_p, function_p, arg_p);
     }
     else {
@@ -1221,8 +1221,8 @@ static inline int   thpool_add_work_safe_inner(thpool_* thpool_p, conc_state_blo
 /* ============================== API =============================== */
 
 #define DEFINE_THPOOL_EASY_API(API) \
-int thpool_##API(thpool_* thpool_p){ \
-    if(unlikely(thpool_p == NULL)){ \
+int thpool_##API(thpool *thpool_p) { \
+    if(unlikely(thpool_p == NULL)) { \
         errno = EINVAL; \
         return -1; \
     } \
@@ -1236,7 +1236,7 @@ DEFINE_THPOOL_EASY_API(destroy)
 DEFINE_THPOOL_EASY_API(num_threads_working)
 
 
-int thpool_add_work(thpool_* thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p){
+int thpool_add_work(thpool *thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p) {
     if(unlikely(thpool_p == NULL)){
         errno = EINVAL;
         return -1;
@@ -1246,8 +1246,8 @@ int thpool_add_work(thpool_* thpool_p, void (*function_p)(void *, threadpool_thr
 
 /* ===================== DEBUG CONC PASSPORT ======================== */
 
-conc_state_block_* thpool_debug_conc_passport_init(){
-    conc_state_block_ *passport = malloc(sizeof(conc_state_block_));
+conc_state_block *thpool_debug_conc_passport_init() {
+    conc_state_block *passport = malloc(sizeof(conc_state_block));
     if (unlikely(passport == NULL)){
         thpool_log_error("Could not allocate memory for debug concurrency passport");
         return NULL;
@@ -1261,21 +1261,21 @@ conc_state_block_* thpool_debug_conc_passport_init(){
 }
 
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API 
-void thpool_debug_conc_passport_destroy(conc_state_block_ *passport){
-    if(unlikely(passport == NULL)){
+void thpool_debug_conc_passport_destroy(conc_state_block *passport) {
+    if(unlikely(passport == NULL)) {
         return;
     }
     /* 检查当前状态。不论哪种状态都应有警告提示。   */
-    switch(atomic_load(&passport->state)){
-        case THPOOL_UNBIND:{
+    switch(atomic_load(&passport->state)) {
+        case THPOOL_UNBIND: {
             thpool_log_warn("destroy a unbind passport. Don't bind it to other threadepool any more.");
             break;
         }
-        case THPOOL_DESTROYED:{
+        case THPOOL_DESTROYED: {
             thpool_log_warn("destroy a passport whose threadpool %s is destroyed. Don't use debug conc apis with it any more.", passport->name_copy);
             break;
         }
-        default:{
+        default: {
             thpool_log_error("destroy a passport whose threadpool %s is at state %d:%s. UAF will happen!", passport->name_copy, passport->state, thpool_state_to_string(passport->state));
         }
     }
@@ -1283,12 +1283,12 @@ void thpool_debug_conc_passport_destroy(conc_state_block_ *passport){
 }
 
 #define DEFINE_THPOOL_EASY_DEBUG_CONC_API(API) \
-int thpool_##API##_debug_conc(thpool_* thpool_p, conc_state_block_ *passport){ \
-    if(unlikely(thpool_p == NULL) || unlikely(passport == NULL)){ \
+int thpool_##API##_debug_conc(thpool *thpool_p, conc_state_block *passport) { \
+    if(unlikely(thpool_p == NULL) || unlikely(passport == NULL)) { \
         errno = EINVAL; \
         return -1; \
     } \
-    if(unlikely(passport->bind_pool != thpool_p)){ \
+    if(unlikely(passport->bind_pool != thpool_p)) { \
         thpool_log_error("passport bind thpool %p:%s, match failed!", passport->bind_pool, passport->name_copy); \
         errno = EINVAL; \
         return -1; \
@@ -1302,12 +1302,12 @@ DEFINE_THPOOL_EASY_DEBUG_CONC_API(shutdown)
 DEFINE_THPOOL_EASY_DEBUG_CONC_API(destroy)
 DEFINE_THPOOL_EASY_DEBUG_CONC_API(num_threads_working)
 
-int thpool_add_work_debug_conc(thpool_* thpool_p, conc_state_block_ *passport, void (*function_p)(void *, threadpool_thread), void *arg_p){
-    if(unlikely(thpool_p == NULL) || unlikely(passport == NULL)){
+int thpool_add_work_debug_conc(thpool *thpool_p, conc_state_block *passport, void (*function_p)(void *, threadpool_thread), void *arg_p) {
+    if(unlikely(thpool_p == NULL) || unlikely(passport == NULL)) {
         errno = EINVAL;
         return -1;
     }
-    if(unlikely(passport->bind_pool != thpool_p)){
+    if(unlikely(passport->bind_pool != thpool_p)) {
         thpool_log_error("passport bind thpool %p:%s, match failed!", passport->bind_pool, passport->name_copy);
         errno = EINVAL;
         return -1;

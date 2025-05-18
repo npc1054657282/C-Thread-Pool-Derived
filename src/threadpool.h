@@ -34,7 +34,7 @@ extern "C" {
  * 
  * threadpool是一个不透明类型，使用者完全不应了解它的一切内部结构，因此它被定义为一个指针类型，而不是一个结构体。
  */
-typedef struct thpool_* threadpool;
+typedef struct thpool *threadpool;
 
 /**
  * @brief An opaque handle for a worker thread within the thread pool.
@@ -48,7 +48,7 @@ typedef struct thpool_* threadpool;
  * 该句柄会被传递给任务函数和线程生命周期回调（`thread_start_cb`, `thread_end_cb`）。
  * 它允许访问线程特定信息和管理线程本地上下文数据。使用者不应直接访问其内部成员。
  */
-typedef struct thread_* threadpool_thread;
+typedef struct thread *threadpool_thread;
 
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
 /**
@@ -93,7 +93,7 @@ typedef struct thread_* threadpool_thread;
  * 如果遵循这个约定，调试并发API可以帮助检测在线程池池生命周期中不正确的时机进行的API调用，
  * 根据通行证状态记录警告或错误，潜在地阻止池对象本身在释放后被使用。
  */
-typedef conc_state_block_* thpool_debug_conc_passport;
+typedef conc_state_block *thpool_debug_conc_passport;
 #endif
 
 /**
@@ -253,7 +253,7 @@ typedef struct threadpool_config {
      * 如果提供通行证，则用户对其生命周期负责。
      * 通行证的生命周期**必须**严格长于相关线程池的生命周期，并且覆盖使用该通行证的所有API调用。
      */
-    thpool_debug_conc_passport *passport;
+    thpool_debug_conc_passport  *passport;
 #endif
 } threadpool_config;
 
@@ -608,7 +608,7 @@ int thpool_thread_get_id(threadpool_thread current_thrd);
  * 返回的指针指向线程池内部内存，调用者不得修改或释放。
  * 字符串在线程的生命周期内有效。如果`current_thrd`为`NULL`则返回`NULL`。
  */
-const char* thpool_thread_get_name(threadpool_thread current_thrd);
+const char *thpool_thread_get_name(threadpool_thread current_thrd);
 
 /**
  * @brief Gets the thread-specific context data for the current thread.
@@ -628,7 +628,7 @@ const char* thpool_thread_get_name(threadpool_thread current_thrd);
  * has been set or if current_thrd is NULL.
  * 指向线程特定上下文数据的指针，如果未设置上下文或`current_thrd`为`NULL`则返回`NULL`。
  */
-void * thpool_thread_get_context(threadpool_thread current_thrd);
+void *thpool_thread_get_context(threadpool_thread current_thrd);
 
 /**
  * @brief Sets the thread-specific context data for the current thread.
