@@ -35,6 +35,7 @@
  */
 
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdint.h>
@@ -815,10 +816,12 @@ struct thpool *thpool_init(threadpool_config *conf) {
     /* Wait for threads to initialize */
     while(atomic_load(&thpool_p->num_threads_alive) != num_threads) {
         /**
-         * 为了让设计简单些，在创建与销毁等性能不那么敏感的地方，没有再添加条件变量。
-         * 而相比原作者的自旋等待，采取了`usleep`等待的折中方案。
-         */ 
-        usleep(10);
+         * 在创建与销毁等性能不那么敏感的地方，没有再添加条件变量。
+         * 如果为此添加一个条件变量和一个锁，仅仅为了创建和销毁的这一点小小的需求就要消耗88字节常驻内存，我有些无法接受。
+         * 其他地方的条件变量的检查都是需要多次使用的，唯独此处几乎仅需要检查一次，我实在不想为此实现cond和mutex的通知机制。
+         * 而相比原作者的自旋忙等待，采取了`nanosleep`等待的折中方案。
+         */
+        nanosleep(&(struct timespec) {0, 10000}, NULL);
     }
 
     return thpool_p;
