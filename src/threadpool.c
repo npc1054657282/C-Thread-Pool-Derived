@@ -475,14 +475,9 @@ static void *thread_do(void *thread_p_arg) {
              * 这里修改为了使用num_threads_working的缓存值判断信号是否发送。
              * ABA等情况这里当然可能出现，但是我们的需求可以容忍，不会造成错误的影响。
              * 当有一个num_threads_working被修改至0时，一定会有一个信号被发送，且不会有两个信号被同时发送。
-             * 使用了GNU的扩展__atomic_sub_fetch来获取原子变量的自减更新值。如果没有这个扩展，将使用旧值-1的方式获取缓存。
-             * 这里哪些扩展支持是claude告诉我的，对于__GNUC__架构以外的其他编译器的支持情况，尤其是__INTEL_COMPILER的具体版本，我无法确认。
+             * 使用旧值-1的方式获取获取原子变量的自减更新值缓存。`__atomic_sub_fetch`需求的参数是普通`int`指针而非`atomic_int`指针，不应使用。
              */
-#if defined(__GNUC__) || defined(__clang__) || (defined(__INTEL_COMPILER) && __INTEL_COMPILER >= 1600)
-            int num_threads_working = __atomic_sub_fetch(&thpool_p->num_threads_working, 1, __ATOMIC_SEQ_CST);
-#else
             int num_threads_working = atomic_fetch_sub(&thpool_p->num_threads_working, 1) - 1;
-#endif
             if (!num_threads_working){
                 pthread_mutex_lock(&thpool_p->threads_all_idle_mutex);
                 /* 这里的signal修改为broadcast，允许支持多个线程都在等待任务队列与工作线程皆空的情形。  */
