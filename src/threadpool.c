@@ -34,6 +34,7 @@
  * 削除了线程池的暂停继续等个人项目用不上的信号量功能，且它们的实现方式我不满意。
  */
 
+#define _POSIX_C_SOURCE 200809L
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
