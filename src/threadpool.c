@@ -294,11 +294,13 @@ typedef struct thpool {
      * 把内部名起成与外部开放名相同，以提醒开发者在内部尽量慎用此结构，因为它的所有权可能在用户手里。
      */
     conc_state_block   *debug_conc_passport;
+#ifdef THPOOL_ENABLE_DEBUG_CONC_API
     /**
      * @brief Flag indicating if the associated passport was provided by the user.
      * True if user provided passport in config, false if library allocated it.
      */
     bool    passport_user_owned;
+#endif
 } thpool;
 
 /* ========================== PROTOTYPES ============================ */
@@ -347,10 +349,7 @@ static inline int   thpool_add_work_safe_inner(thpool *thpool_p, conc_state_bloc
 static inline int   thpool_reactivate_safe_inner(thpool *thpool_p, conc_state_block *passport);
 static inline int   thpool_num_threads_working_safe_inner(thpool *thpool_p, conc_state_block *passport);
 
-/* 如果启用调试并发API，在头文件中定义此初始化函数。    */
-#ifndef THPOOL_ENABLE_DEBUG_CONC_API
-conc_state_block   *thpool_debug_conc_passport_init();
-#endif
+static conc_state_block *thpool_debug_conc_passport_init_inner(enum thpool_state state);
 
 /* ============================ THREAD ============================== */
 
@@ -671,10 +670,7 @@ struct thpool *thpool_init(threadpool_config *conf) {
         thpool_p->passport_user_owned = true;
         thpool_p->debug_conc_passport = conf->passport;
     }
-#else
-    thpool_p->passport_user_owned = false;
-    thpool_p->debug_conc_passport = thpool_debug_conc_passport_init();
-#endif
+
     if(thpool_p->debug_conc_passport == NULL) {
         thpool_log_error("thpool_init(): Could not allocate memory for conc state block");
         goto cleanup_pool;
@@ -696,11 +692,16 @@ struct thpool *thpool_init(threadpool_config *conf) {
             goto cleanup_passport;
         }
     }
-#ifdef THPOOL_ENABLE_DEBUG_CONC_API
     thpool_p->debug_conc_passport->bind_pool = thpool_p;
     snprintf(thpool_p->debug_conc_passport->name_copy, sizeof(thpool_p->debug_conc_passport->name_copy), "%s", conf->thread_name_prefix);
-#endif
     bind_success = true;
+#else
+    thpool_p->debug_conc_passport = thpool_debug_conc_passport_init_inner(THPOOL_ALIVE);
+    if(thpool_p->debug_conc_passport == NULL) {
+        thpool_log_error("thpool_init(): Could not allocate memory for conc state block");
+        goto cleanup_pool;
+    }
+#endif
 
     /* 配置继承。   */
     /* Inherit configuration.   */
@@ -842,6 +843,7 @@ cleanup_jobqueue:
 cleanup_jobqueue_rwmutex:
     pthread_mutex_destroy(&(thpool_p->jobqueue_rwmutex));
 cleanup_passport:
+#ifdef THPOOL_ENABLE_DEBUG_CONC_API
     if(bind_success) {
         /* 如果最初绑定成功，passport状态块回退回THPOOL_UNBIND。    */
         expected = THPOOL_ALIVE;
@@ -860,14 +862,15 @@ cleanup_passport:
                 break;
             }
         }
-#ifdef THPOOL_ENABLE_DEBUG_CONC_API
     thpool_p->debug_conc_passport->bind_pool = NULL;
-#endif
     }
     if(!thpool_p->passport_user_owned) {
         /* 若passport非用户持有，无警告地简单清理掉passport对象。   */
         free(thpool_p->debug_conc_passport);
     }
+#else
+    free(thpool_p->debug_conc_passport);
+#endif
 cleanup_pool:
     free(thpool_p);
     return NULL;
@@ -983,7 +986,9 @@ static int thpool_destroy_safe_inner(thpool *thpool_p, conc_state_block *passpor
         }
         continue;
     }
+#ifdef THPOOL_ENABLE_DEBUG_CONC_API
     bool passport_user_owned = thpool_p->passport_user_owned;
+#endif
 
     /* Deallocs */
     int n;
@@ -1013,10 +1018,14 @@ static int thpool_destroy_safe_inner(thpool *thpool_p, conc_state_block *passpor
             abort();
         }
     }
+#ifdef THPOOL_ENABLE_DEBUG_CONC_API
     /* 若passport非用户持有，无警告地简单清理掉passport对象。   */
     if(!passport_user_owned) {
         free(passport);
     }
+#else
+    free(passport);
+#endif
     return 0;
 }
 
@@ -1242,13 +1251,17 @@ int thpool_add_work(thpool *thpool_p, void (*function_p)(void *, threadpool_thre
 /* ===================== DEBUG CONC PASSPORT ======================== */
 
 conc_state_block *thpool_debug_conc_passport_init() {
+    return thpool_debug_conc_passport_init_inner(THPOOL_UNBIND);
+}
+
+conc_state_block *thpool_debug_conc_passport_init_inner(enum thpool_state state) {
     conc_state_block *passport = malloc(sizeof(conc_state_block));
     if (unlikely(passport == NULL)){
         thpool_log_error("Could not allocate memory for debug concurrency passport");
         return NULL;
     }
     atomic_init(&passport->num_api_use, 0);
-    atomic_init(&passport->state, THPOOL_UNBIND);
+    atomic_init(&passport->state, state);
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API 
     memset(passport->name_copy, 0, sizeof(passport->name_copy));
 #endif
