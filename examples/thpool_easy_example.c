@@ -16,11 +16,13 @@
 #include <stdint.h>
 #include "threadpool.h"
 
-void task(void *arg, threadpool_thread _){
+void task(void *arg, threadpool_thread _)
+{
     printf("Thread #%u working on %d\n", (unsigned)pthread_self(), (int)(intptr_t)arg);
 }
 
-int main(){
+int main()
+{
     /* 未被指定初始化的参数会自动初始化为0。    */
     threadpool_config conf = {
         .num_threads = 4,
@@ -31,7 +33,7 @@ int main(){
 
     printf("Adding 40 tasks to threadpool\n");
     int i;
-    for (i=0; i<40; i++){
+    for (i=0; i<40; i++) {
         void *arg = (void *)(intptr_t)i;
         thpool_add_work(thpool, task, arg);
     };

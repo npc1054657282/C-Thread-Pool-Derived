@@ -179,7 +179,8 @@ Once the source files are included and logging is handled according to Option 1 
 #include "threadpool_log_config.h" // Include this to use thpool_log_* in this file
 
 // Define a task function matching the signature void (*function_p)(void *arg, threadpool_thread current_thrd)
-void my_task(void *arg, threadpool_thread current_thrd) {
+void my_task(void *arg, threadpool_thread current_thrd)
+{
     // Access thread ID and name using the handle
     int thread_id = thpool_thread_get_id(current_thrd);
     const char* thread_name = thpool_thread_get_name(current_thrd);
@@ -195,7 +196,8 @@ void my_task(void *arg, threadpool_thread current_thrd) {
 }
 
 // Optional: Define thread start callback
-void my_thread_start_callback(void *arg, threadpool_thread current_thrd) {
+void my_thread_start_callback(void *arg, threadpool_thread current_thrd)
+{
     int thread_id = thpool_thread_get_id(current_thrd);
     const char* thread_name = thpool_thread_get_name(current_thrd);
     thpool_log_info("Thread %d (%s) started. Callback arg pointer: %p", thread_id, thread_name, arg);
@@ -207,7 +209,8 @@ void my_thread_start_callback(void *arg, threadpool_thread current_thrd) {
 }
 
 // Optional: Define thread end callback
-void my_thread_end_callback(threadpool_thread current_thrd) {
+void my_thread_end_callback(threadpool_thread current_thrd)
+{
     int thread_id = thpool_thread_get_id(current_thrd);
     const char* thread_name = thpool_thread_get_name(current_thrd);
     thpool_log_info("Thread %d (%s) ending.", thread_id, thread_name);
@@ -219,7 +222,8 @@ void my_thread_end_callback(threadpool_thread current_thrd) {
     // thpool_thread_unset_context(current_thrd);
 }
 
-int main() {
+int main()
+{
     threadpool_config conf = {
         .num_threads = 4,
         .work_num_max = 10,
