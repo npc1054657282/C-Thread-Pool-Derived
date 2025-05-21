@@ -8,16 +8,17 @@
 #include "threadpool.h"
 #include "utils/log.h"
 
-typedef struct task_thread_ctx{
+typedef struct task_thread_ctx {
     time_t start;
     pthread_mutex_t *log_mutex_ref;
-}task_thread_ctx;
+} task_thread_ctx;
 
-void start_cb(void *arg, threadpool_thread current_thrd){
+void start_cb(void *arg, threadpool_thread current_thrd)
+{
 
     pthread_mutex_t *log_mutex = arg;
     task_thread_ctx *tctx = thpool_thread_get_context(current_thrd);
-    if(!tctx) {
+    if (!tctx) {
         tctx = malloc(sizeof(task_thread_ctx));
         if (tctx == NULL) {
             // 分配失败处理，例如打印错误日志
@@ -32,9 +33,10 @@ void start_cb(void *arg, threadpool_thread current_thrd){
     tctx->log_mutex_ref = log_mutex;
 }
 
-void end_cb(threadpool_thread current_thrd){
+void end_cb(threadpool_thread current_thrd)
+{
     task_thread_ctx *tctx = (task_thread_ctx *)thpool_thread_get_context(current_thrd);
-    if(!tctx) {
+    if (!tctx) {
         return;
     }
     free(tctx);//上下文对互斥锁只是引用，并非持有，无需在此销毁。
@@ -42,21 +44,23 @@ void end_cb(threadpool_thread current_thrd){
     thpool_thread_unref_callback_arg(current_thrd);
 }
 
-void mutex_destructor_wrap(void *arg){
+void mutex_destructor_wrap(void *arg)
+{
     pthread_mutex_t * mutex = arg;
     pthread_mutex_destroy(mutex);
     free(mutex);
 }
 
-typedef struct{
+typedef struct {
     int job_id;
     time_t add_work_time;
 } task_args;
 
-void task(void *arg, threadpool_thread current_thrd){
+void task(void *arg, threadpool_thread current_thrd)
+{
     task_args *args = arg;
-    task_thread_ctx *tctx = (task_thread_ctx *)thpool_thread_get_context(current_thrd);
-    if(!tctx) {
+    task_thread_ctx *tctx = thpool_thread_get_context(current_thrd);
+    if (!tctx) {
         return;
     }
     time_t add_work_time = (time_t)args->add_work_time;
@@ -75,7 +79,8 @@ void task(void *arg, threadpool_thread current_thrd){
     free(args);
 }
 
-int main(){
+int main()
+{
     /* 为所有printf创建互斥锁，提供给线程开始的回调，以保存到各线程的上下文。 */
     pthread_mutex_t *log_mutex = malloc(sizeof(pthread_mutex_t));
     pthread_mutex_init(log_mutex, NULL);
@@ -94,7 +99,7 @@ int main(){
 
     printf("Adding 40 tasks to threadpool\n");
     int i;
-    for (i=0; i<40; i++){
+    for (i=0; i<40; i++) {
         time_t now;
         time(&now);
         pthread_mutex_lock(log_mutex);
@@ -112,7 +117,7 @@ int main(){
 
     thpool_wait(thpool);
     thpool_reactivate(thpool);
-    for (i=0; i<40; i++){
+    for (i=0; i<40; i++) {
         time_t now;
         time(&now);
         pthread_mutex_lock(log_mutex);

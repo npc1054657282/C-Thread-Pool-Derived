@@ -275,7 +275,8 @@ typedef struct threadpool_config {
  * @example
  * // Example 1: Basic initialization with stack-allocated config
  * // Note: Ensure callback_arg's lifetime is handled correctly!
- * int main() {
+ * int main()
+ * {
  *     // Define configuration on the stack
  *     threadpool_config conf = {
  *         .thread_name_prefix = "worker",
@@ -302,8 +303,9 @@ typedef struct threadpool_config {
  * @example
  * // Example 2: Initialization with callback_arg pointing to a compound literal
  * // Note: This is safe ONLY if thpool_destroy is called within the lifetime of the compound literal!
- * int main() {
- *     threadpool pool = thpool_init( &( (threadpool_config){
+ * int main()
+ * {
+ *     threadpool pool = thpool_init( &( (threadpool_config) {
  *         .thread_name_prefix = "task",
  *         .num_threads = 2,
  *         .work_num_max = 50,
@@ -324,7 +326,8 @@ typedef struct threadpool_config {
  *     return 0;
  * }
  * // Assuming MyConfigStruct is defined elsewhere
- * // void my_thread_start_using_config(void *arg, threadpool_thread current_thrd) {
+ * // void my_thread_start_using_config(void *arg, threadpool_thread current_thrd)
+ * // {
  * //     MyConfigStruct *config = arg;
  * //     // ... use config->setting1 etc. ...
  * // }
@@ -341,7 +344,7 @@ typedef struct threadpool_config {
  *     }
  *     res_data->resource_id = 42;
  *
- *     threadpool pool = thpool_init( &( (threadpool_config){
+ *     threadpool pool = thpool_init( &( (threadpool_config) {
  *         // ... other config ...
  *         .thread_start_cb = my_thread_start_using_resource,
  *         .thread_end_cb = NULL,
@@ -363,7 +366,8 @@ typedef struct threadpool_config {
  * } // Scope ends
  *
  * // User-defined cleanup function
- * // void cleanup_resource_data(void *arg) {
+ * // void cleanup_resource_data(void *arg)
+ * // {
  * //     // arg is a copy of the callback_arg passed during init
  * //     ResourceData *data_to_free = arg;
  * //     // ... perform any nested cleanup if needed ...
@@ -509,7 +513,8 @@ int thpool_num_threads_working(threadpool);
  *     void *task_arg_int = (void *)(intptr_t)value_to_process; // Pass value (This conversion is implementation-defined. Do not dereference the resulting pointer.)
  *     thpool_add_work(pool, task_process_int, task_arg_int);
  * // ...
- * void task_process_int(void *args, threadpoolthread current_thrd) {
+ * void task_process_int(void *args, threadpoolthread current_thrd)
+ * {
  *     int num = (int)(intptr_t)args; // Access the value (be mindful of narrowing conversion)
  *     printf("Processing integer: %d\n", num);
  *     // No free needed for a value
@@ -536,7 +541,8 @@ int thpool_num_threads_working(threadpool);
  * //     This requires coordination (e.g., task signals completion, or task frees itself).
  * //     A common pattern is for the task itself to free the memory it received via pointer.
  * // ...
- * void task_process_point(void *args, threadpoolthread current_thrd) {
+ * void task_process_point(void *args, threadpoolthread current_thrd)
+ * {
  *     Point *p = args; // Access the pointer
  *     printf("Processing point: (%f, %f)\n", p->x, p->y);
  *     free(p); // <-- Task takes responsibility for freeing heap data
@@ -556,7 +562,8 @@ int thpool_num_threads_working(threadpool);
  * // ... some_function returns ...
  * // ... task_use_stack_data runs later and uses invalid pointer ...
  * // }
- * // void task_use_stack_data(void *args, threadpoolthread current_thrd) {
+ * // void task_use_stack_data(void *args, threadpoolthread current_thrd)
+ * // {
  * //     int *num_ptr = args;
  * //     printf("Processing number: %d\n", *num_ptr); // CRASH or UB!
  * // }
