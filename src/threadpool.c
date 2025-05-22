@@ -38,12 +38,17 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
-#include <string.h>
 #include <stdint.h>
 #include <pthread.h>
 #include <stdatomic.h>
-#include <stddef.h>
 #include <errno.h>
+
+/* Use `nullptr` for backward portability.  */
+#if !defined(__cplusplus) && !defined(nullptr) && \
+   (!defined(__STDC_VERSION__) || __STDC_VERSION__ <= 201710)
+    #define nullptr ((void*)0)
+#endif
+
 
 /**
  * The header files below are only used for naming threads, for easier debugging.
@@ -366,9 +371,9 @@ static conc_state_block *thpool_debug_conc_passport_init_inner(enum thpool_state
 static int thread_init(thpool *thpool_p, struct thread **thread_pout, int id)
 {
     *thread_pout = malloc(sizeof(struct thread));
-    if (unlikely(*thread_pout == NULL)) {
+    if (unlikely(*thread_pout == nullptr)) {
         thpool_log_error("thread_init(): Could not allocate memory for thread");
-        if (thpool_p->callback_arg_destructor != NULL) {
+        if (thpool_p->callback_arg_destructor != nullptr) {
             /* 线程 */
             atomic_fetch_sub_explicit(&thpool_p->callback_arg_refcount, 1, memory_order_acq_rel);
         }
@@ -377,7 +382,7 @@ static int thread_init(thpool *thpool_p, struct thread **thread_pout, int id)
 
     (*thread_pout)->thpool_p    = thpool_p;
     (*thread_pout)->id          = id;
-    if (thpool_p->callback_arg_destructor != NULL) {
+    if (thpool_p->callback_arg_destructor != nullptr) {
         (*thread_pout)->callback_arg_ref_holding = true;
     } else {
         (*thread_pout)->callback_arg_ref_holding = false;
@@ -387,12 +392,12 @@ static int thread_init(thpool *thpool_p, struct thread **thread_pout, int id)
     snprintf((*thread_pout)->thread_name, 16, "%s-%x", thpool_p->thread_name_prefix, id);
 
     /**
-     * 线程的thread_context上下文初始化为NULL。
+     * 线程的thread_context上下文初始化为空指针。
      * 用户可以在线程的回调函数与任意job函数中通过线程句柄获得该线程上下文槽位。
      */
-    (*thread_pout)->thread_ctx_slot = NULL;
+    (*thread_pout)->thread_ctx_slot = nullptr;
 
-    int err = pthread_create(&(*thread_pout)->pthread, NULL, thread_do, (*thread_pout));
+    int err = pthread_create(&(*thread_pout)->pthread, nullptr, thread_do, (*thread_pout));
     if (unlikely(err != 0)) {
         thpool_log_error("thread %d:pthread_create_failed, err=%d",id, err);
         errno = err;
@@ -402,9 +407,9 @@ static int thread_init(thpool *thpool_p, struct thread **thread_pout, int id)
     return 0;
 cleanup_thread:
     free(*thread_pout);
-    *thread_pout = NULL;
+    *thread_pout = nullptr;
 unref_callback_arg:
-    if (thpool_p->callback_arg_destructor != NULL) {
+    if (thpool_p->callback_arg_destructor != nullptr) {
     /**
      * 线程创建失败时，解除对`callback_arg`在本线程未创建时就存在的默认持有。
      * 注意这里不需要也不能对资源进行释放，
@@ -462,8 +467,8 @@ static void *thread_do(void *thread_p_arg)
 
         job *job_p = thpool_get_job(thread_p->thpool_p);
 
-        //如果job_p为NULL，这基本意味着进程池正在被摧毁。
-        if (job_p != NULL) {
+        //如果job_p为空指针，这基本意味着进程池正在被摧毁。
+        if (job_p != nullptr) {
 
             atomic_fetch_add(&thpool_p->num_threads_working, 1);
 
@@ -495,13 +500,13 @@ static void *thread_do(void *thread_p_arg)
     }
     atomic_fetch_sub(&thpool_p->num_threads_alive, 1);
 
-    return NULL;
+    return nullptr;
 }
 
 /* Frees a thread  */
 static void thread_destroy(thread *thread_p)
 {
-    if (unlikely(thread_p == NULL)) {
+    if (unlikely(thread_p == nullptr)) {
         return;
     }
     /**
@@ -545,12 +550,12 @@ void thpool_thread_set_context(threadpool_thread current_thrd, void *ctx)
 
 void thpool_thread_unset_context(threadpool_thread current_thrd)
 {
-    current_thrd->thread_ctx_slot = NULL;
+    current_thrd->thread_ctx_slot = nullptr;
 }
 
 void thpool_thread_unref_callback_arg(threadpool_thread current_thrd)
 {
-    if (current_thrd->callback_arg_ref_holding && likely(current_thrd->thpool_p->callback_arg_destructor != NULL)) {
+    if (current_thrd->callback_arg_ref_holding && likely(current_thrd->thpool_p->callback_arg_destructor != nullptr)) {
         current_thrd->callback_arg_ref_holding = false;
         if (atomic_fetch_sub_explicit(&current_thrd->thpool_p->callback_arg_refcount, 1, memory_order_acq_rel) == 1) {
             current_thrd->thpool_p->callback_arg_destructor(current_thrd->thpool_p->callback_arg);
@@ -566,8 +571,8 @@ void thpool_thread_unref_callback_arg(threadpool_thread current_thrd)
 static int jobqueue_init(jobqueue *jobqueue_p, int max_len)
 {
     jobqueue_p->len = 0;
-    jobqueue_p->front = NULL;
-    jobqueue_p->rear  = NULL;
+    jobqueue_p->front = nullptr;
+    jobqueue_p->rear  = nullptr;
     jobqueue_p->max_len = (max_len > 0)?max_len:0;
 
     return 0;
@@ -580,8 +585,8 @@ static void jobqueue_clear_unsafe(jobqueue *jobqueue_p)
         free(jobqueue_pull_unsafe(jobqueue_p));
     }
 
-    jobqueue_p->front = NULL;
-    jobqueue_p->rear  = NULL;
+    jobqueue_p->front = nullptr;
+    jobqueue_p->rear  = nullptr;
     jobqueue_p->len = 0;
 }
 
@@ -597,7 +602,7 @@ static void jobqueue_destroy_unsafe(jobqueue *jobqueue_p)
 */
 static void jobqueue_push_unsafe(jobqueue *jobqueue_p, struct job *newjob)
 {
-    newjob->prev = NULL;
+    newjob->prev = nullptr;
 
     switch (jobqueue_p->len) {
     case 0:  /* if no jobs in queue */
@@ -625,8 +630,8 @@ static struct job *jobqueue_pull_unsafe(jobqueue *jobqueue_p)
             break;
 
     case 1:  /* if one job in queue */
-            jobqueue_p->front = NULL;
-            jobqueue_p->rear  = NULL;
+            jobqueue_p->front = nullptr;
+            jobqueue_p->rear  = nullptr;
             jobqueue_p->len = 0;
             break;
 
@@ -648,15 +653,15 @@ static struct job *jobqueue_pull_unsafe(jobqueue *jobqueue_p)
  * It also handles the creation or binding of the concurrency passport based on the config.
  *
  * @param conf Pointer to a threadpool_config structure containing initialization options.
- * Must not be NULL. The memory pointed to by @p conf is only needed during the call to thpool_init.
- * @return threadpool A handle to the created thread pool on success, or NULL on error.
- * Returns NULL if memory allocation fails, thread creation fails, or passport binding/initialization fails.
+ * Must not be null pointer. The memory pointed to by @p conf is only needed during the call to thpool_init.
+ * @return threadpool A handle to the created thread pool on success, or null pointer on error.
+ * Returns null pointer if memory allocation fails, thread creation fails, or passport binding/initialization fails.
  */
 struct thpool *thpool_init(threadpool_config *conf)
 {
-    if (unlikely(conf == NULL)) {
+    if (unlikely(conf == nullptr)) {
         errno = EINVAL;
-        return NULL;
+        return nullptr;
     }
 
     int num_threads = (conf->num_threads < 0)?0:conf->num_threads;
@@ -664,15 +669,15 @@ struct thpool *thpool_init(threadpool_config *conf)
     /* Make new thread pool */
     thpool *thpool_p;
     thpool_p = malloc(sizeof(struct thpool));
-    if (unlikely(thpool_p == NULL)) {
+    if (unlikely(thpool_p == nullptr)) {
         thpool_log_error("thpool_init(): Could not allocate memory for thread pool");
-        return NULL;
+        return nullptr;
     }
 
     /* 创建或使用用户提供的同步控制块。 */
     /* Create or use user-provided concurrency control block (passport). */
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API
-    if (conf->passport == NULL){
+    if (conf->passport == nullptr){
         thpool_p->passport_user_owned = false;
         thpool_p->debug_conc_passport = thpool_debug_conc_passport_init();
     } else {
@@ -680,7 +685,7 @@ struct thpool *thpool_init(threadpool_config *conf)
         thpool_p->debug_conc_passport = conf->passport;
     }
 
-    if (thpool_p->debug_conc_passport == NULL) {
+    if (thpool_p->debug_conc_passport == nullptr) {
         thpool_log_error("thpool_init(): Could not allocate memory for conc state block");
         goto cleanup_pool;
     }
@@ -705,7 +710,7 @@ struct thpool *thpool_init(threadpool_config *conf)
     bind_success = true;
 #else
     thpool_p->debug_conc_passport = thpool_debug_conc_passport_init_inner(THPOOL_ALIVE);
-    if (thpool_p->debug_conc_passport == NULL) {
+    if (thpool_p->debug_conc_passport == nullptr) {
         thpool_log_error("thpool_init(): Could not allocate memory for conc state block");
         goto cleanup_pool;
     }
@@ -730,7 +735,7 @@ struct thpool *thpool_init(threadpool_config *conf)
      * 如果用户对callback_arg传入了析构函数，则各线程默认均持有引用。此外`thpool_init`自己也视为持有引用。
      * `thpool_init`的引用持续到所有线程的创建函数执行完成。
      */
-    if (thpool_p->callback_arg_destructor != NULL) {
+    if (thpool_p->callback_arg_destructor != nullptr) {
         atomic_init(&thpool_p->callback_arg_refcount, num_threads + 1);
     } else {
         atomic_init(&thpool_p->callback_arg_refcount, 0);
@@ -738,7 +743,7 @@ struct thpool *thpool_init(threadpool_config *conf)
 
     /* 在任务队列创建前，先创建相关锁。 */
     /* Job queue related locks and condition variables initialization. */
-    int err = pthread_mutex_init(&(thpool_p->jobqueue_rwmutex), NULL);
+    int err = pthread_mutex_init(&(thpool_p->jobqueue_rwmutex), nullptr);
     if (unlikely(err != 0)) { // Check init result
         thpool_log_error("thpool_init(): Could not initialize jobqueue_rwmutex");
         errno = err;
@@ -752,13 +757,13 @@ struct thpool *thpool_init(threadpool_config *conf)
     }
 
     /* 任务队列条件量初始化。   */
-    err = pthread_cond_init(&thpool_p->get_job_unblock, NULL);
+    err = pthread_cond_init(&thpool_p->get_job_unblock, nullptr);
     if (unlikely(err != 0)) { // Check init result
         thpool_log_error("thpool_init(): Could not initialize get_job_unblock");
         errno = err;
         goto cleanup_jobqueue;
     }
-    err = pthread_cond_init(&thpool_p->put_job_unblock, NULL);
+    err = pthread_cond_init(&thpool_p->put_job_unblock, nullptr);
     if (unlikely(err != 0)) { // Check init result
         thpool_log_error("thpool_init(): Could not initialize put_job_unblock");
         errno = err;
@@ -766,7 +771,7 @@ struct thpool *thpool_init(threadpool_config *conf)
     }
 
     /* TSD key 初始化。         */
-    err = pthread_key_create(&thpool_p->key, NULL);
+    err = pthread_key_create(&thpool_p->key, nullptr);
     if (unlikely(err != 0)) {
         thpool_log_error("thpool_init(): Could not initialize TSD key");
         errno = err;
@@ -775,20 +780,20 @@ struct thpool *thpool_init(threadpool_config *conf)
 
     /* Make threads in pool */
     thpool_p->threads = malloc(num_threads * sizeof(struct thread *));
-    if (unlikely(thpool_p->threads == NULL)) {
+    if (unlikely(thpool_p->threads == nullptr)) {
         thpool_log_error("thpool_init(): Could not allocate memory for threads");
         goto cleanup_TSD_key;
     }
 
     /* 线程空闲锁与条件量初始化。 */
     /* Thread idle lock and condition variable initialization. */
-    err = pthread_mutex_init(&(thpool_p->threads_all_idle_mutex), NULL);
+    err = pthread_mutex_init(&(thpool_p->threads_all_idle_mutex), nullptr);
     if (unlikely(err != 0)) { // Check init result
         thpool_log_error("thpool_init(): Could not initialize threads_all_idle_mutex");
         errno = err;
         goto cleanup_threads_array;
     }
-    err = pthread_cond_init(&thpool_p->threads_all_idle, NULL);
+    err = pthread_cond_init(&thpool_p->threads_all_idle, nullptr);
     if (unlikely(err != 0)) { // Check init result
         thpool_log_error("thpool_init(): Could not initialize threads_all_idle");
         errno = err;
@@ -812,7 +817,7 @@ struct thpool *thpool_init(threadpool_config *conf)
      * 如果线程没有全部创建失败，就视为线程池创建成功。此时解除`thpool_init`自身的引用计数。
      * 因为此刻可以保证不会再发生线程池创建失败的可能性，因此如果引用计数降至0，可以放心地执行析构。
      */
-    if (thpool_p->callback_arg_destructor != NULL) {
+    if (thpool_p->callback_arg_destructor != nullptr) {
         if (atomic_fetch_sub_explicit(&thpool_p->callback_arg_refcount, 1, memory_order_acq_rel) == 1) {
             thpool_p->callback_arg_destructor(thpool_p->callback_arg);
             thpool_log_debug("callback_arg destructed by thpool_init.");
@@ -827,7 +832,7 @@ struct thpool *thpool_init(threadpool_config *conf)
          * 其他地方的条件变量的检查都是需要多次使用的，唯独此处几乎仅需要检查一次，我实在不想为此实现cond和mutex的通知机制。
          * 而相比原作者的自旋忙等待，采取了`nanosleep`等待的折中方案。
          */
-        nanosleep(&(struct timespec) {0, 10000}, NULL);
+        nanosleep(&(struct timespec) {0, 10000}, nullptr);
     }
 
     return thpool_p;
@@ -870,7 +875,7 @@ cleanup_passport:
                 break;
             }
         }
-        thpool_p->debug_conc_passport->bind_pool = NULL;
+        thpool_p->debug_conc_passport->bind_pool = nullptr;
     }
     if (!thpool_p->passport_user_owned) {
         /* 若passport非用户持有，无警告地简单清理掉passport对象。   */
@@ -881,7 +886,7 @@ cleanup_passport:
 #endif
 cleanup_pool:
     free(thpool_p);
-    return NULL;
+    return nullptr;
 }
 
 /* 将thpool的threads_keepalive设置为false，并等待所有线程与正在执行中的thpool_add_work执行完毕。    */
@@ -1089,7 +1094,7 @@ static struct job *thpool_get_job(thpool *thpool_p)
     if (!thpool_alive) {
         pthread_mutex_unlock(&thpool_p->jobqueue_rwmutex);
         errno = ECANCELED;
-        return NULL;
+        return nullptr;
     }
 
     ret = jobqueue_pull_unsafe(&thpool_p->jobqueue);
@@ -1120,7 +1125,7 @@ static int thpool_add_work_inner(thpool *thpool_p, void (*function_p)(void *, th
     job *newjob;
 
     newjob=malloc(sizeof(struct job));
-    if (unlikely(newjob == NULL)) {
+    if (unlikely(newjob == nullptr)) {
         thpool_log_error("thpool_add_work(): Could not allocate memory for new job");
         return -1;
     }
@@ -1228,7 +1233,7 @@ static inline int thpool_add_work_safe_inner(thpool *thpool_p, conc_state_block 
 #define DEFINE_THPOOL_EASY_API(API) \
 int thpool_##API(thpool *thpool_p) \
 { \
-    if (unlikely(thpool_p == NULL)) { \
+    if (unlikely(thpool_p == nullptr)) { \
         errno = EINVAL; \
         return -1; \
     } \
@@ -1244,7 +1249,7 @@ DEFINE_THPOOL_EASY_API(num_threads_working)
 
 int thpool_add_work(thpool *thpool_p, void (*function_p)(void *, threadpool_thread), void *arg_p)
 {
-    if (unlikely(thpool_p == NULL)){
+    if (unlikely(thpool_p == nullptr)){
         errno = EINVAL;
         return -1;
     }
@@ -1261,9 +1266,9 @@ conc_state_block *thpool_debug_conc_passport_init()
 conc_state_block *thpool_debug_conc_passport_init_inner(enum thpool_state state)
 {
     conc_state_block *passport = malloc(sizeof(conc_state_block));
-    if (unlikely(passport == NULL)) {
+    if (unlikely(passport == nullptr)) {
         thpool_log_error("Could not allocate memory for debug concurrency passport");
-        return NULL;
+        return nullptr;
     }
     atomic_init(&passport->num_api_use, 0);
     atomic_init(&passport->state, state);
@@ -1276,7 +1281,7 @@ conc_state_block *thpool_debug_conc_passport_init_inner(enum thpool_state state)
 #ifdef THPOOL_ENABLE_DEBUG_CONC_API 
 void thpool_debug_conc_passport_destroy(conc_state_block *passport)
 {
-    if (unlikely(passport == NULL)) {
+    if (unlikely(passport == nullptr)) {
         return;
     }
     /* 检查当前状态。不论哪种状态都应有警告提示。   */
@@ -1296,7 +1301,7 @@ void thpool_debug_conc_passport_destroy(conc_state_block *passport)
 #define DEFINE_THPOOL_EASY_DEBUG_CONC_API(API) \
 int thpool_##API##_debug_conc(thpool *thpool_p, conc_state_block *passport) \
 { \
-    if (unlikely(thpool_p == NULL) || unlikely(passport == NULL)) { \
+    if (unlikely(thpool_p == nullptr) || unlikely(passport == nullptr)) { \
         errno = EINVAL; \
         return -1; \
     } \
@@ -1316,7 +1321,7 @@ DEFINE_THPOOL_EASY_DEBUG_CONC_API(num_threads_working)
 
 int thpool_add_work_debug_conc(thpool *thpool_p, conc_state_block *passport, void (*function_p)(void *, threadpool_thread), void *arg_p)
 {
-    if (unlikely(thpool_p == NULL) || unlikely(passport == NULL)) {
+    if (unlikely(thpool_p == nullptr) || unlikely(passport == nullptr)) {
         errno = EINVAL;
         return -1;
     }
