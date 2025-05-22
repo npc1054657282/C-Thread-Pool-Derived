@@ -44,11 +44,9 @@
 #include <errno.h>
 
 /* Use `nullptr` for backward portability.  */
-#if !defined(__cplusplus) && !defined(nullptr) && \
-   (!defined(__STDC_VERSION__) || __STDC_VERSION__ <= 201710)
-    #define nullptr ((void*)0)
+#if !defined(nullptr) && (!defined(__STDC_VERSION__) || __STDC_VERSION__ <= 201710)
+    #define nullptr ((void *)0)
 #endif
-
 
 /**
  * The header files below are only used for naming threads, for easier debugging.
